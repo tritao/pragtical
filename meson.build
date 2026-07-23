@@ -451,9 +451,15 @@ if get_option('extra_colors')
     subproject('colors', default_options: ['data_dir='+pragtical_datadir])
 endif
 
-# Pull extra languages
-if get_option('extra_languages')
-    subproject('plugins', default_options: ['data_dir='+pragtical_datadir])
+# Pull extra languages and selected plugins
+plugin_options = ['data_dir='+pragtical_datadir]
+plugin_options += ['extra_languages=' + (get_option('extra_languages') ? 'true' : 'false')]
+if get_option('lua_plugins').length() > 0
+    plugin_options += ['lua_plugins='+','.join(get_option('lua_plugins'))]
+endif
+
+if get_option('extra_languages') or get_option('lua_plugins').length() > 0
+    subproject('plugins', default_options: plugin_options)
 endif
 
 # Include the plugin manager

@@ -1,1 +1,3 @@
 option('data_dir', type : 'string', value : '/', description: 'Data directory of installation')
+option('extra_languages', type : 'boolean', value : true, description: 'Include all language plugins')
+option('lua_plugins', type : 'array', value : [], description: 'Lua plugins to bundle')

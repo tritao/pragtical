@@ -20,6 +20,7 @@ show_help() {
   echo "-h --help                     Show this help and exit."
   echo "-p --prefix PREFIX            Install directory prefix. Default: '/'."
   echo "-B --bundle                   Create an App bundle (macOS only)"
+  echo "   --plugins LIST             Bundle comma-separated Lua plugins from the plugins repository."
   echo "-P --portable                 Create a portable binary package."
   echo "-O --pgo                      Use profile guided optimizations (pgo)."
   echo "-L --lto                      Enables Link-Time Optimization (LTO)."
@@ -45,6 +46,7 @@ main() {
   local portable
   local pgo
   local lto
+  local lua_plugins
   local cross
   local cross_platform
   local cross_arch
@@ -82,6 +84,15 @@ main() {
         else
           bundle="-Dbundle=true"
         fi
+        shift
+        ;;
+      --plugins|--lua-plugins)
+        if [[ -z "$2" || "$2" == -* ]]; then
+          echo "Error: $i requires a comma-separated plugin list."
+          exit 1
+        fi
+        lua_plugins="-Dlua_plugins=$2"
+        shift
         shift
         ;;
       -P|--portable)
@@ -191,6 +202,7 @@ main() {
     $portable \
     $pgo \
     $lto \
+    $lua_plugins \
     -Doptimization=3 \
     "${build_dir}"
 
