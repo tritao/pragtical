@@ -462,8 +462,7 @@ if get_option('extra_languages') or get_option('lua_plugins').length() > 0
     subproject('plugins', default_options: plugin_options)
 endif
 
-# Build selected native plugins from checked-out submodules. Keep these
-# checkouts outside subprojects/ because Meson sandboxes nested subprojects.
+# Build selected native plugins from checked-out subprojects.
 foreach native_plugin : get_option('native_plugins')
     if native_plugin != 'terminal'
         error('Unknown native plugin: ' + native_plugin)
@@ -471,32 +470,13 @@ foreach native_plugin : get_option('native_plugins')
 endforeach
 
 if 'terminal' in get_option('native_plugins')
-    terminal_source = 'native/terminal/src/libterminal.c'
-    terminal_init = 'native/terminal/plugins/terminal/init.lua'
-
-    if not fs.is_file(terminal_source) or not fs.is_file(terminal_init)
-        error('The terminal submodule is not initialized; run git submodule update --init')
-    endif
-
-    terminal_dependencies = []
-    if host_machine.system() != 'windows'
-        terminal_dependencies += [cc.find_library('util', required: true)]
-    endif
-
-    shared_module(
-        'terminal',
-        files(terminal_source),
-        dependencies: terminal_dependencies,
-        include_directories: include_directories('resources/include'),
-        name_prefix: 'lib',
-        install: true,
-        install_dir: pragtical_datadir / 'plugins' / 'terminal'
+    plugin_api_dep = declare_dependency(
+        include_directories: include_directories('resources/include')
     )
-
-    install_data(
-        terminal_init,
-        install_dir: pragtical_datadir / 'plugins' / 'terminal'
-    )
+    meson.override_dependency('pragtical_plugin_api', plugin_api_dep)
+    subproject('terminal', default_options: [
+        'data_dir=' + pragtical_datadir
+    ])
 endif
 
 # Include the plugin manager

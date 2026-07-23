@@ -106,7 +106,7 @@ copy_pragtical_build () {
   if [ -d "subprojects/plugins" ]; then
     cp -a "subprojects/plugins/plugins/"language_* "$datadir/plugins"
   fi
-  if [ -f "native/terminal/plugins/terminal/init.lua" ]; then
+  if [ -f "subprojects/terminal/plugins/terminal/init.lua" ]; then
     terminal_binary=""
     for candidate in \
       "$builddir/libterminal.so" \
@@ -126,7 +126,7 @@ copy_pragtical_build () {
     fi
     if [ -n "$terminal_binary" ]; then
       mkdir -p "$datadir/plugins/terminal"
-      cp -a "native/terminal/plugins/terminal/init.lua" "$datadir/plugins/terminal"
+      cp -a "subprojects/terminal/plugins/terminal/init.lua" "$datadir/plugins/terminal"
       cp -a "$terminal_binary" "$datadir/plugins/terminal"
     fi
   fi
