@@ -268,9 +268,13 @@ if not get_option('source-only')
         default_options: default_fallback_options + ['default_library=static', 'test=false']
     )
 
-    if get_option('wrap_mode') != 'forcefallback'
-        sdl_dep = dependency('sdl3')
-    else
+    use_sdl_fallback = get_option('wrap_mode') == 'forcefallback'
+    if not use_sdl_fallback
+        sdl_dep = dependency('sdl3', version: '>=3.4.0', required: get_option('wrap_mode') == 'nofallback')
+        use_sdl_fallback = not sdl_dep.found()
+    endif
+
+    if use_sdl_fallback
         cmake = import('cmake')
 
         sdl_build_type = 'Release'
@@ -333,7 +337,13 @@ if not get_option('source-only')
         endif
 
         sdl = cmake.subproject('sdl3', options: sdl_options)
-        sdl_dep = sdl.dependency('SDL3-static')
+        # CMake dependencies do not expose a version to Meson. Preserve the
+        # version required by the SDL_image and SDL_net fallbacks when
+        # overriding the SDL3 dependency.
+        sdl_dep = declare_dependency(
+            dependencies: sdl.dependency('SDL3-static'),
+            version: '3.4.10'
+        )
         meson.override_dependency('sdl3', sdl_dep)
     endif
 
