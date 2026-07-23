@@ -2,7 +2,8 @@
 VERSION = "@PROJECT_VERSION@"
 PRAGTICAL_PROJECT_SOURCE_DIR = "@PROJECT_SOURCE_DIR_LUA@"
 PRAGTICAL_PROJECT_BUILD_DIR = "@PROJECT_BUILD_DIR_LUA@"
-PRAGTICAL_NATIVE_TERMINAL = @PROJECT_NATIVE_TERMINAL@
+PRAGTICAL_DEV_PLUGIN_ROOTS = @PROJECT_DEV_PLUGIN_ROOTS@
+PRAGTICAL_DEV_NATIVE_PLUGINS = @PROJECT_DEV_NATIVE_PLUGINS@
 MOD_VERSION_MAJOR = tonumber("@MOD_VERSION_MAJOR@")
 MOD_VERSION_MINOR = tonumber("@MOD_VERSION_MINOR@")
 MOD_VERSION_PATCH = tonumber("@MOD_VERSION_PATCH@")
@@ -44,11 +45,8 @@ if PRAGTICAL_DEV_MODE then
     project_subprojects .. PATHSEP .. '?' .. PATHSEP .. 'init.lua',
     project_subprojects .. PATHSEP .. '?.lua',
   }
-  if PRAGTICAL_NATIVE_TERMINAL then
-    table.insert(
-      dev_package_paths,
-      project_subprojects .. PATHSEP .. 'terminal' .. PATHSEP .. '?' .. PATHSEP .. 'init.lua'
-    )
+  for _, plugin_root in ipairs(PRAGTICAL_DEV_PLUGIN_ROOTS) do
+    table.insert(dev_package_paths, plugin_root .. PATHSEP .. '?' .. PATHSEP .. 'init.lua')
   end
   package.path = table.concat(dev_package_paths, ';') .. ';' .. package.path
 end
@@ -76,15 +74,9 @@ package.cpath =
   DATADIR .. '/?/init.' .. suffix .. ";"
 
 package.native_plugins = {}
-if PRAGTICAL_DEV_MODE and PRAGTICAL_NATIVE_TERMINAL then
-  local dev_native_plugins = {
-    ["plugins.terminal.libterminal"] = {
-      PRAGTICAL_PROJECT_BUILD_DIR .. PATHSEP .. 'subprojects' .. PATHSEP .. 'terminal' .. PATHSEP .. 'libterminal.' .. suffix,
-      PRAGTICAL_PROJECT_BUILD_DIR .. PATHSEP .. 'subprojects' .. PATHSEP .. 'terminal' .. PATHSEP .. 'libterminal.dylib',
-    },
-  }
+if PRAGTICAL_DEV_MODE then
   table.insert(package.searchers, 1, function(modname)
-    local candidates = dev_native_plugins[modname]
+    local candidates = PRAGTICAL_DEV_NATIVE_PLUGINS[modname]
     if not candidates then return end
     for _, path in ipairs(candidates) do
       if system.get_file_info(path) then

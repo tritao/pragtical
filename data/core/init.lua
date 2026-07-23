@@ -898,12 +898,10 @@ function core.load_plugins()
     end
   end
   local plugin_roots = {DATADIR, USERDIR}
-  if PRAGTICAL_DEV_MODE and PRAGTICAL_NATIVE_TERMINAL then
-    table.insert(
-      plugin_roots,
-      2,
-      PRAGTICAL_PROJECT_SOURCE_DIR .. PATHSEP .. "subprojects" .. PATHSEP .. "terminal"
-    )
+  if PRAGTICAL_DEV_MODE then
+    for _, plugin_root in ipairs(PRAGTICAL_DEV_PLUGIN_ROOTS) do
+      table.insert(plugin_roots, plugin_root)
+    end
   end
   for _, root_dir in ipairs(plugin_roots) do
     local plugin_dir = root_dir .. PATHSEP .. "plugins"
