@@ -41,6 +41,10 @@ cd pragtical
 ./run.sh
 ```
 
+The helper scripts reuse an existing Meson build directory, so subsequent
+builds do not reconfigure bundled dependencies. Use `./build.sh --reconfigure`
+after changing build options, or `./build.sh --wipe` to configure from scratch.
+
 For a manual Meson setup, use:
 
 ```sh

@@ -19,6 +19,9 @@ show_help() {
   echo "-f --forcefallback            Force to build dependencies statically."
   echo "-h --help                     Show this help and exit."
   echo "-p --prefix PREFIX            Install directory prefix. Default: '/'."
+  echo "   --reconfigure              Reconfigure an existing build directory."
+  echo "                              Existing options are preserved when reusing it."
+  echo "-w --wipe/--clean             Delete and recreate the build directory."
   echo "-B --bundle                   Create an App bundle (macOS only)"
   echo "   --plugins LIST             Bundle comma-separated Lua plugins from the plugins repository."
   echo "   --native-plugins LIST      Build comma-separated native plugins from submodules."
@@ -43,6 +46,8 @@ main() {
   local build_type="debugoptimized"
   local prefix=/
   local wrap_mode="--wrap-mode=default"
+  local reconfigure=false
+  local wipe=false
   local bundle=""
   local portable=""
   local pgo=""
@@ -78,6 +83,14 @@ main() {
       -p|--prefix)
         prefix="$2"
         shift
+        shift
+        ;;
+      --reconfigure)
+        reconfigure=true
+        shift
+        ;;
+      -w|--wipe|--clean)
+        wipe=true
         shift
         ;;
       -B|--bundle)
@@ -195,7 +208,16 @@ main() {
     export LDFLAGS="-mmacosx-version-min=$macos_version_min"
   fi
 
-  rm -rf "${build_dir}"
+  build_dir_configured=false
+  if [[ -f "${build_dir}/meson-private/coredata.dat" ]]; then
+    build_dir_configured=true
+  fi
+
+  if [[ $wipe == true ]]; then
+    echo "Wiping build directory: ${build_dir}"
+    rm -rf -- "${build_dir}"
+    build_dir_configured=false
+  fi
 
   # Enable ppm only for windows 32 Bits which binary download is not available
   local ppm="-Dppm=false"
@@ -203,20 +225,32 @@ main() {
     ppm="-Dppm=true"
   fi
 
-  CFLAGS="${CFLAGS:-}" LDFLAGS="${LDFLAGS:-}" meson setup \
-    --buildtype=$build_type \
-    --prefix "$prefix" \
-    $ppm \
-    "${cross_file[@]}" \
-    $wrap_mode \
-    $bundle \
-    $portable \
-    $pgo \
-    $lto \
-    $lua_plugins \
-    $native_plugins \
-    -Doptimization=3 \
-    "${build_dir}"
+  if [[ $build_dir_configured == false || $reconfigure == true ]]; then
+    if [[ $build_dir_configured == true ]]; then
+      echo "Reconfiguring build directory: ${build_dir}"
+      setup_mode="--reconfigure"
+    else
+      setup_mode=""
+    fi
+
+    CFLAGS="${CFLAGS:-}" LDFLAGS="${LDFLAGS:-}" meson setup \
+      $setup_mode \
+      --buildtype=$build_type \
+      --prefix "$prefix" \
+      $ppm \
+      "${cross_file[@]}" \
+      $wrap_mode \
+      $bundle \
+      $portable \
+      $pgo \
+      $lto \
+      $lua_plugins \
+      $native_plugins \
+      -Doptimization=3 \
+      "${build_dir}"
+  else
+    echo "Reusing existing build directory: ${build_dir}"
+  fi
 
   meson compile -C "${build_dir}"
 
