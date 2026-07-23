@@ -157,7 +157,7 @@ main() {
   fi
 
   # if CROSS_ARCH is used, it will be picked up
-  cross="${cross:-$CROSS_ARCH}"
+  cross="${cross:-${CROSS_ARCH:-}}"
   if [[ -n "$cross" ]]; then
     if [[ -n "$cross_file" ]] && ([[ -z "$cross_arch" ]] || [[ -z "$cross_platform" ]]); then
       echo "Warning: --cross-platform or --cross-platform not set; guessing it from the filename."
@@ -203,7 +203,7 @@ main() {
     ppm="-Dppm=true"
   fi
 
-  CFLAGS=$CFLAGS LDFLAGS=$LDFLAGS meson setup \
+  CFLAGS="${CFLAGS:-}" LDFLAGS="${LDFLAGS:-}" meson setup \
     --buildtype=$build_type \
     --prefix "$prefix" \
     $ppm \

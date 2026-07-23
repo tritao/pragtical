@@ -54,8 +54,8 @@ get_platform_name() {
 get_platform_arch() {
   platform=$(get_platform_name)
   arch=${CROSS_ARCH:-$(uname -m)}
-  if [[ $MSYSTEM != "" ]]; then
-    case "$MSYSTEM" in
+  if [[ ${MSYSTEM:-} != "" ]]; then
+    case "${MSYSTEM:-}" in
       MINGW64|UCRT64|CLANG64)
       arch=x86_64
       ;;
