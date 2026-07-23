@@ -43,18 +43,18 @@ main() {
   local build_type="debugoptimized"
   local prefix=/
   local wrap_mode="--wrap-mode=default"
-  local bundle
-  local portable
-  local pgo
-  local lto
-  local lua_plugins
-  local native_plugins
-  local cross
-  local cross_platform
-  local cross_arch
-  local cross_file
+  local bundle=""
+  local portable=""
+  local pgo=""
+  local lto=""
+  local lua_plugins=""
+  local native_plugins=""
+  local cross=""
+  local cross_platform=""
+  local cross_arch=""
+  local cross_file=""
 
-  local lua_subproject_path
+  local lua_subproject_path=""
 
   for i in "$@"; do
     case $i in

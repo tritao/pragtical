@@ -162,8 +162,8 @@ copy_pragtical_build () {
 
 run_pragtical () {
   if [[ $option_debug == true ]]; then
-    echo "LLVM_PROFILE_FILE: $LLVM_PROFILE_FILE"
-    echo "SDL_VIDEO_DRIVER: $SDL_VIDEO_DRIVER"
+    echo "LLVM_PROFILE_FILE: ${LLVM_PROFILE_FILE:-}"
+    echo "SDL_VIDEO_DRIVER: ${SDL_VIDEO_DRIVER:-}"
   fi
   if [[ $option_global == true ]]; then
     echo "running \"pragtical ${pargs[@]:1}\""
