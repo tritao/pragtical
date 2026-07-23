@@ -897,7 +897,15 @@ function core.load_plugins()
       end
     end
   end
-  for _, root_dir in ipairs {DATADIR, USERDIR} do
+  local plugin_roots = {DATADIR, USERDIR}
+  if PRAGTICAL_DEV_MODE and PRAGTICAL_NATIVE_TERMINAL then
+    table.insert(
+      plugin_roots,
+      2,
+      PRAGTICAL_PROJECT_SOURCE_DIR .. PATHSEP .. "subprojects" .. PATHSEP .. "terminal"
+    )
+  end
+  for _, root_dir in ipairs(plugin_roots) do
     local plugin_dir = root_dir .. PATHSEP .. "plugins"
     for _, filename in ipairs(system.list_dir(plugin_dir) or {}) do
       if not files[filename] then

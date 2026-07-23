@@ -1,6 +1,8 @@
 -- this file is used by pragtical to setup the Lua environment when starting
 VERSION = "@PROJECT_VERSION@"
 PRAGTICAL_PROJECT_SOURCE_DIR = "@PROJECT_SOURCE_DIR_LUA@"
+PRAGTICAL_PROJECT_BUILD_DIR = "@PROJECT_BUILD_DIR_LUA@"
+PRAGTICAL_NATIVE_TERMINAL = @PROJECT_NATIVE_TERMINAL@
 MOD_VERSION_MAJOR = tonumber("@MOD_VERSION_MAJOR@")
 MOD_VERSION_MINOR = tonumber("@MOD_VERSION_MINOR@")
 MOD_VERSION_PATCH = tonumber("@MOD_VERSION_PATCH@")
@@ -30,7 +32,10 @@ package.path = DATADIR .. '/?.lua;'
 package.path = DATADIR .. '/?/init.lua;' .. package.path
 if PRAGTICAL_DEV_MODE then
   local project_subprojects = PRAGTICAL_PROJECT_SOURCE_DIR .. PATHSEP .. 'subprojects'
+  local project_build_subprojects = PRAGTICAL_PROJECT_BUILD_DIR .. PATHSEP .. 'subprojects'
   local dev_package_paths = {
+    project_build_subprojects .. PATHSEP .. 'luajit' .. PATHSEP .. 'src' .. PATHSEP .. '?.lua',
+    project_subprojects .. PATHSEP .. 'luajit' .. PATHSEP .. 'src' .. PATHSEP .. '?.lua',
     project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'libraries' .. PATHSEP .. '?.lua',
     project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'plugins' .. PATHSEP .. '?' .. PATHSEP .. 'init.lua',
     project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'plugins' .. PATHSEP .. '?.lua',
@@ -39,6 +44,12 @@ if PRAGTICAL_DEV_MODE then
     project_subprojects .. PATHSEP .. '?' .. PATHSEP .. 'init.lua',
     project_subprojects .. PATHSEP .. '?.lua',
   }
+  if PRAGTICAL_NATIVE_TERMINAL then
+    table.insert(
+      dev_package_paths,
+      project_subprojects .. PATHSEP .. 'terminal' .. PATHSEP .. '?' .. PATHSEP .. 'init.lua'
+    )
+  end
   package.path = table.concat(dev_package_paths, ';') .. ';' .. package.path
 end
 package.path = USERDIR .. '/?.lua;' .. package.path
@@ -65,6 +76,28 @@ package.cpath =
   DATADIR .. '/?/init.' .. suffix .. ";"
 
 package.native_plugins = {}
+if PRAGTICAL_DEV_MODE and PRAGTICAL_NATIVE_TERMINAL then
+  local dev_native_plugins = {
+    ["plugins.terminal.libterminal"] = {
+      PRAGTICAL_PROJECT_BUILD_DIR .. PATHSEP .. 'subprojects' .. PATHSEP .. 'terminal' .. PATHSEP .. 'libterminal.' .. suffix,
+      PRAGTICAL_PROJECT_BUILD_DIR .. PATHSEP .. 'subprojects' .. PATHSEP .. 'terminal' .. PATHSEP .. 'libterminal.dylib',
+    },
+  }
+  table.insert(package.searchers, 1, function(modname)
+    local candidates = dev_native_plugins[modname]
+    if not candidates then return end
+    for _, path in ipairs(candidates) do
+      if system.get_file_info(path) then
+        if not LUAJIT then
+          return system.load_native_plugin, path
+        else
+          return function() return system.load_native_plugin(modname, path) end
+        end
+      end
+    end
+    return string.format("\n\tno development native plugin '%s'", modname)
+  end)
+end
 table.insert(package.searchers, 1, function(modname)
   local path, err = package.searchpath(modname, package.cpath)
   if not path then return err end

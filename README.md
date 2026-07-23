@@ -41,6 +41,10 @@ cd pragtical
 ./run.sh
 ```
 
+`run.sh` runs the build directly from the checkout and keeps development user
+data in `.run/user`. Use `scripts/run-local` when you specifically need a
+staged installation layout.
+
 The helper scripts reuse an existing Meson build directory, so subsequent
 builds do not reconfigure bundled dependencies. Use `./build.sh --reconfigure`
 after changing build options, or `./build.sh --wipe` to configure from scratch.

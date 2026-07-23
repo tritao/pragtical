@@ -26,4 +26,16 @@ else
   "$script_dir/build.sh" --builddir "$build_dir"
 fi
 
-exec "$script_dir/scripts/run-local" "$build_dir" "$@"
+if [[ -f "$build_dir/src/pragtical.exe" ]]; then
+  executable="$build_dir/src/pragtical.exe"
+else
+  executable="$build_dir/src/pragtical"
+fi
+
+if [[ ! -f "$executable" ]]; then
+  echo "Built Pragtical executable not found: ${executable}" >&2
+  exit 1
+fi
+
+export PRAGTICAL_USERDIR="${PRAGTICAL_USERDIR:-$script_dir/.run/user}"
+exec "$executable" "$@"

@@ -95,6 +95,12 @@ conf_data.set('PROJECT_SOURCE_DIR', meson.current_source_dir())
 # Lua accepts forward slashes on all supported platforms, so keep the
 # configured source path safe to embed in a Lua string.
 conf_data.set('PROJECT_SOURCE_DIR_LUA', meson.current_source_dir().replace('\\', '/'))
+conf_data.set('PROJECT_BUILD_DIR_LUA', meson.current_build_dir().replace('\\', '/'))
+if 'terminal' in get_option('native_plugins')
+    conf_data.set('PROJECT_NATIVE_TERMINAL', 'true')
+else
+    conf_data.set('PROJECT_NATIVE_TERMINAL', 'false')
+endif
 conf_data.set('PROJECT_VERSION', version)
 conf_data.set('PROJECT_ASSEMBLY_VERSION', meson.project_version() + '.0')
 conf_data.set('MOD_VERSION_MAJOR', mod_version[0])
