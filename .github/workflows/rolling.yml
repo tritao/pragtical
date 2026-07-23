@@ -19,7 +19,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Set Tag
         id: tag
         run: |
@@ -73,7 +75,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Set Environment Variables
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -102,7 +106,7 @@ jobs:
           bash scripts/install-dependencies.sh --debug
       - name: Build Portable
         run: |
-          bash scripts/build.sh --debug --forcefallback --portable --lto --pgo
+          bash ./build.sh --debug --forcefallback --portable --lto --pgo
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -142,7 +146,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: System Information
         run: |
           system_profiler SPSoftwareDataType
@@ -164,7 +170,7 @@ jobs:
         run: bash scripts/install-dependencies.sh --debug
       - name: Build
         run: |
-          bash scripts/build.sh --bundle --debug --forcefallback --lto --pgo
+          bash ./build.sh --bundle --debug --forcefallback --lto --pgo
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -196,7 +202,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -228,7 +236,7 @@ jobs:
           fi
       - name: Build
         run: |
-          bash scripts/build.sh --debug --forcefallback --lto --pgo
+          bash ./build.sh --debug --forcefallback --lto --pgo
       - name: Run Tests
         run: |
           source scripts/common.sh

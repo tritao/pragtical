@@ -22,7 +22,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Set Environment Variables
         if: ${{ matrix.config.cc == 'gcc' }}
         run: |
@@ -42,7 +44,7 @@ jobs:
       - name: Build
         run: |
           bash --version
-          bash scripts/build.sh --debug --forcefallback --portable
+          bash ./build.sh --debug --forcefallback --portable
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -73,7 +75,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: System Information
         run: |
           system_profiler SPSoftwareDataType
@@ -96,7 +100,7 @@ jobs:
       - name: Build
         run: |
           bash --version
-          bash scripts/build.sh --bundle --debug --forcefallback
+          bash ./build.sh --bundle --debug --forcefallback
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -123,7 +127,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -157,7 +163,7 @@ jobs:
       - name: Build
         run: |
           bash --version
-          bash scripts/build.sh --debug --forcefallback
+          bash ./build.sh --debug --forcefallback
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -181,7 +187,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Setup Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -201,7 +209,7 @@ jobs:
           "LUA_SUBPROJECT_PATH=subprojects/lua-5.4.6" >> $env:GITHUB_ENV
       - name: Configure
         run: |
-          meson setup --wrap-mode=forcefallback -Dppm=false build
+          meson setup --wrap-mode=forcefallback -Dppm=false -Dnative_plugins=terminal build
       - name: Build
         run: |
           meson compile -j 1 -C build

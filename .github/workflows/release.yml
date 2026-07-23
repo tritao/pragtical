@@ -25,7 +25,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Set Tag
         id: tag
         run: |
@@ -75,7 +77,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Set Environment Variables
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -104,7 +108,7 @@ jobs:
           bash scripts/install-dependencies.sh --debug
       - name: Build Portable
         run: |
-          bash scripts/build.sh --debug --forcefallback --portable --release --lto --pgo
+          bash ./build.sh --debug --forcefallback --portable --release --lto --pgo
       - name: Package Portables
         run: bash scripts/package.sh --version ${INSTALL_REF} --debug --addons --binary --release
       - name: Build AppImages
@@ -139,7 +143,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: System Information
         run: |
           system_profiler SPSoftwareDataType
@@ -161,7 +167,7 @@ jobs:
         run: bash scripts/install-dependencies.sh --debug
       - name: Build
         run: |
-          bash scripts/build.sh --bundle --debug --forcefallback --lto --pgo --release
+          bash ./build.sh --bundle --debug --forcefallback --lto --pgo --release
       - name: Create DMG Image
         run: |
           bash scripts/package.sh --version ${INSTALL_REF} --debug --addons --dmg --release
@@ -188,7 +194,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -220,7 +228,7 @@ jobs:
           fi
       - name: Build
         run: |
-          bash scripts/build.sh --debug --forcefallback --release --lto --pgo
+          bash ./build.sh --debug --forcefallback --release --lto --pgo
       - name: Package
         run: bash scripts/package.sh --version ${INSTALL_REF} --addons --debug --binary --release
       - name: Build Installer
