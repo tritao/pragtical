@@ -456,6 +456,8 @@ endif
 # Include the plugin manager
 if get_option('ppm')
     default_ppm_options = [
+        'warning_level=0',
+        'werror=false',
         'static=true',
         'install_plugin=true',
         'pragtical_datadir='+pragtical_datadir,
