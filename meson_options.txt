@@ -9,6 +9,7 @@ option('use_system_lua', type : 'boolean', value : false, description: 'Prefer S
 option('extra_colors', type : 'boolean', value : true, description: 'Include additional colors')
 option('extra_languages', type : 'boolean', value : true, description: 'Include additional language plugins')
 option('lua_plugins', type : 'array', value : [], description: 'Selected Lua plugins from the plugins subproject')
+option('native_plugins', type : 'array', value : [], description: 'Native plugins to build and bundle')
 option('ppm', type : 'boolean', value : true, description: 'Include the plugin manager')
 option('jit', type : 'boolean', value : true, description: 'Use luajit')
 option('export_all_symbols', type : 'boolean', value : false, description: 'Export all executable symbols for LuaJIT FFI access on Linux')

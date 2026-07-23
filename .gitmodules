@@ -1,0 +1,3 @@
+[submodule "subprojects/terminal"]
+	path = subprojects/terminal
+	url = https://github.com/pragtical/terminal.git

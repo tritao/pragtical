@@ -21,6 +21,7 @@ show_help() {
   echo "-p --prefix PREFIX            Install directory prefix. Default: '/'."
   echo "-B --bundle                   Create an App bundle (macOS only)"
   echo "   --plugins LIST             Bundle comma-separated Lua plugins from the plugins repository."
+  echo "   --native-plugins LIST      Build comma-separated native plugins from submodules."
   echo "-P --portable                 Create a portable binary package."
   echo "-O --pgo                      Use profile guided optimizations (pgo)."
   echo "-L --lto                      Enables Link-Time Optimization (LTO)."
@@ -47,6 +48,7 @@ main() {
   local pgo
   local lto
   local lua_plugins
+  local native_plugins
   local cross
   local cross_platform
   local cross_arch
@@ -92,6 +94,15 @@ main() {
           exit 1
         fi
         lua_plugins="-Dlua_plugins=$2"
+        shift
+        shift
+        ;;
+      --native-plugins)
+        if [[ -z "$2" || "$2" == -* ]]; then
+          echo "Error: $i requires a comma-separated native plugin list."
+          exit 1
+        fi
+        native_plugins="-Dnative_plugins=$2"
         shift
         shift
         ;;
@@ -203,6 +214,7 @@ main() {
     $pgo \
     $lto \
     $lua_plugins \
+    $native_plugins \
     -Doptimization=3 \
     "${build_dir}"
 
