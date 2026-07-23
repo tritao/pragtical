@@ -80,11 +80,28 @@ minilua = executable('minilua', 'host/minilua.c',
                      dependencies: system_deps_native,
                      native: true)
 
-relver = vcs_tag(command: ['git', 'show', '-s', '--format=%ct'],
-                 fallback: 'ROLLING',
-                 input: 'luajit_relver.txt.in',
-                 output: 'luajit_relver.txt',
-                 replace_string: '@VCS_CT@')
+# Generate the revision timestamp while configuring the subproject. Meson's
+# vcs_tag() creates a PHONY build target so it can detect Git changes, which
+# makes this command run on every incremental build.
+relver_data = configuration_data()
+relver_data.set('VCS_CT', 'ROLLING')
+
+git_command = find_program('git', required: false)
+if git_command.found()
+    git_timestamp = run_command(
+        [git_command, 'show', '-s', '--format=%ct'],
+        check: false
+    ).stdout().strip()
+    if git_timestamp != ''
+        relver_data.set('VCS_CT', git_timestamp)
+    endif
+endif
+
+relver = configure_file(
+    input: 'luajit_relver.txt.in',
+    output: 'luajit_relver.txt',
+    configuration: relver_data
+)
 
 luajit_rolling_h = files('luajit_rolling.h')
 
