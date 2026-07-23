@@ -5,7 +5,7 @@ project('pragtical',
     meson_version : '>= 0.63',
     default_options : [
         'c_std=gnu11,c11',
-        'wrap_mode=nofallback'
+        'wrap_mode=default'
     ]
 )
 

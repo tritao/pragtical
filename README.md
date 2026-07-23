@@ -31,16 +31,16 @@ git clone https://github.com/pragtical/pragtical
 2. Setup and compile the project
 
 ```sh
-meson setup --wrap-mode=forcefallback -Dportable=true build
+meson setup --wrap-mode=default -Dportable=true build
 meson compile -C build
 ```
 
 > [!NOTE]
-> We set `--wrap-mode` to forcefallback to download and build all the dependencies
-> which will take longer. If you have all dependencies installed on your system
-> you can skip this flag. Also notice we set the `portable` flag to true, this
-> way the install process will generate a directory structure that is easily
-> relocatable.
+> `--wrap-mode=default` prefers dependencies installed on your system and
+> downloads/builds only missing dependencies. Use `--wrap-mode=forcefallback`
+> when you want to build all dependencies from the bundled Meson wraps. Also
+> notice we set the `portable` flag to true, this way the install process will
+> generate a directory structure that is easily relocatable.
 
 3. Install and profit!
 

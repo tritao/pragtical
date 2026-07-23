@@ -40,7 +40,7 @@ main() {
   local build_dir="$(get_default_build_dir)"
   local build_type="debugoptimized"
   local prefix=/
-  local force_fallback
+  local wrap_mode="--wrap-mode=default"
   local bundle
   local portable
   local pgo
@@ -68,7 +68,7 @@ main() {
         shift
         ;;
       -f|--forcefallback)
-        force_fallback="--wrap-mode=forcefallback"
+        wrap_mode="--wrap-mode=forcefallback"
         shift
         ;;
       -p|--prefix)
@@ -175,15 +175,6 @@ main() {
 
   rm -rf "${build_dir}"
 
-  # Download the subprojects so we can copy plugin manager,
-  # this will prevent reconfiguring the project.
-  if [[ $platform == "windows" ]]; then
-    # on windows file locks can occur so 1 job at a time
-    meson subprojects download -j 1
-  else
-    meson subprojects download
-  fi
-
   # Enable ppm only for windows 32 Bits which binary download is not available
   local ppm="-Dppm=false"
   if [[ $platform == "windows" && $arch == "i686" ]]; then
@@ -195,7 +186,7 @@ main() {
     --prefix "$prefix" \
     $ppm \
     "${cross_file[@]}" \
-    $force_fallback \
+    $wrap_mode \
     $bundle \
     $portable \
     $pgo \
