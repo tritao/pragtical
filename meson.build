@@ -92,6 +92,9 @@ endif
 conf_data = configuration_data()
 conf_data.set('PROJECT_BUILD_DIR', meson.current_build_dir())
 conf_data.set('PROJECT_SOURCE_DIR', meson.current_source_dir())
+# Lua accepts forward slashes on all supported platforms, so keep the
+# configured source path safe to embed in a Lua string.
+conf_data.set('PROJECT_SOURCE_DIR_LUA', meson.current_source_dir().replace('\\', '/'))
 conf_data.set('PROJECT_VERSION', version)
 conf_data.set('PROJECT_ASSEMBLY_VERSION', meson.project_version() + '.0')
 conf_data.set('MOD_VERSION_MAJOR', mod_version[0])

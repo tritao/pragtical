@@ -1,5 +1,6 @@
 -- this file is used by pragtical to setup the Lua environment when starting
 VERSION = "@PROJECT_VERSION@"
+PRAGTICAL_PROJECT_SOURCE_DIR = "@PROJECT_SOURCE_DIR_LUA@"
 MOD_VERSION_MAJOR = tonumber("@MOD_VERSION_MAJOR@")
 MOD_VERSION_MINOR = tonumber("@MOD_VERSION_MINOR@")
 MOD_VERSION_PATCH = tonumber("@MOD_VERSION_PATCH@")
@@ -12,7 +13,9 @@ SCALE = 1.0
 PATHSEP = package.config:sub(1, 1)
 
 EXEDIR = EXEFILE:match("^(.+)[/\\][^/\\]+$")
-if MACOS_RESOURCES then
+if PRAGTICAL_DEV_MODE then
+  DATADIR = PRAGTICAL_PROJECT_SOURCE_DIR .. PATHSEP .. 'data'
+elseif MACOS_RESOURCES then
   DATADIR = MACOS_RESOURCES
 else
   local prefix = os.getenv('PRAGTICAL_PREFIX') or EXEDIR:match("^(.+)[/\\]bin$")
@@ -25,6 +28,19 @@ USERDIR = (system.get_file_info(EXEDIR .. PATHSEP .. 'user') and (EXEDIR .. PATH
 
 package.path = DATADIR .. '/?.lua;'
 package.path = DATADIR .. '/?/init.lua;' .. package.path
+if PRAGTICAL_DEV_MODE then
+  local project_subprojects = PRAGTICAL_PROJECT_SOURCE_DIR .. PATHSEP .. 'subprojects'
+  local dev_package_paths = {
+    project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'libraries' .. PATHSEP .. '?.lua',
+    project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'plugins' .. PATHSEP .. '?' .. PATHSEP .. 'init.lua',
+    project_subprojects .. PATHSEP .. 'ppm' .. PATHSEP .. 'plugins' .. PATHSEP .. '?.lua',
+    project_subprojects .. PATHSEP .. 'plugins' .. PATHSEP .. 'plugins' .. PATHSEP .. '?.lua',
+    project_subprojects .. PATHSEP .. 'colors' .. PATHSEP .. 'colors' .. PATHSEP .. '?.lua',
+    project_subprojects .. PATHSEP .. '?' .. PATHSEP .. 'init.lua',
+    project_subprojects .. PATHSEP .. '?.lua',
+  }
+  package.path = table.concat(dev_package_paths, ';') .. ';' .. package.path
+end
 package.path = USERDIR .. '/?.lua;' .. package.path
 package.path = USERDIR .. '/?/init.lua;' .. package.path
 

@@ -121,7 +121,11 @@ typedef struct {
 
 /* Lua init-code: loads and starts the core.  core.run() is now non-blocking
  * (it only sets up the run-loop state); SDL_AppIterate drives the loop by
- * calling core.run_step() on every frame. */
+ * calling core.run_step() on every frame.
+ *
+ * Installed builds load data/core/start.lua from their data directory. A
+ * checkout build instead uses Meson's generated start.lua one directory
+ * above the executable. */
 static const char *init_code =
   "core = false\n"
   "local os_exit = os.exit\n"
@@ -134,7 +138,16 @@ static const char *init_code =
   "  LUAJIT = " PRAGTICAL_LUAJIT "\n"
   "  local exedir = match(EXEFILE, '^(.*)" PRAGTICAL_PATHSEP_PATTERN PRAGTICAL_NONPATHSEP_PATTERN "$')\n"
   "  local prefix = os.getenv('PRAGTICAL_PREFIX') or match(exedir, '^(.*)" PRAGTICAL_PATHSEP_PATTERN "bin$')\n"
-  "  dofile((MACOS_RESOURCES or (prefix and prefix .. '/share/pragtical' or exedir .. '/data')) .. '/core/start.lua')\n"
+  "  local pathsep = package.config:sub(1, 1)\n"
+  "  local start_file = (MACOS_RESOURCES or (prefix and prefix .. pathsep .. 'share' .. pathsep .. 'pragtical' or exedir .. pathsep .. 'data')) .. pathsep .. 'core' .. pathsep .. 'start.lua'\n"
+  "  if not system.get_file_info(start_file) then\n"
+  "    local checkout_start_file = exedir .. pathsep .. '..' .. pathsep .. 'start.lua'\n"
+  "    if system.get_file_info(checkout_start_file) then\n"
+  "      PRAGTICAL_DEV_MODE = true\n"
+  "      start_file = checkout_start_file\n"
+  "    end\n"
+  "  end\n"
+  "  dofile(start_file)\n"
   "  core = require(os.getenv('PRAGTICAL_RUNTIME') or 'core')\n"
   "  core.init()\n"
   "  core.run()\n"
