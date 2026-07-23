@@ -462,7 +462,8 @@ if get_option('extra_languages') or get_option('lua_plugins').length() > 0
     subproject('plugins', default_options: plugin_options)
 endif
 
-# Build selected native plugins from checked-out submodules.
+# Build selected native plugins from checked-out submodules. Keep these
+# checkouts outside subprojects/ because Meson sandboxes nested subprojects.
 foreach native_plugin : get_option('native_plugins')
     if native_plugin != 'terminal'
         error('Unknown native plugin: ' + native_plugin)
@@ -470,8 +471,8 @@ foreach native_plugin : get_option('native_plugins')
 endforeach
 
 if 'terminal' in get_option('native_plugins')
-    terminal_source = 'subprojects/terminal/src/libterminal.c'
-    terminal_init = 'subprojects/terminal/plugins/terminal/init.lua'
+    terminal_source = 'native/terminal/src/libterminal.c'
+    terminal_init = 'native/terminal/plugins/terminal/init.lua'
 
     if not fs.is_file(terminal_source) or not fs.is_file(terminal_init)
         error('The terminal submodule is not initialized; run git submodule update --init')

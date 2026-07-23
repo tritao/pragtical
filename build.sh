@@ -4,7 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ ! -f "$script_dir/subprojects/terminal/src/libterminal.c" ]]; then
+if [[ ! -f "$script_dir/native/terminal/src/libterminal.c" ]]; then
   echo "The terminal submodule is not initialized; run: git submodule update --init" >&2
   exit 1
 fi
