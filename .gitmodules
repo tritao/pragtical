@@ -1,3 +1,4 @@
 [submodule "subprojects/terminal"]
 	path = subprojects/terminal
-	url = https://github.com/pragtical/terminal.git
+	url = https://github.com/tritao/terminal.git
+	branch = next
