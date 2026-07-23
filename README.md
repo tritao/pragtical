@@ -25,10 +25,23 @@ A list of changes is registered on the [changelog] file. Please refer to our
 1. Clone this repository
 
 ```sh
-git clone https://github.com/pragtical/pragtical
+git clone --recurse-submodules https://github.com/pragtical/pragtical
+cd pragtical
 ```
 
-2. Setup and compile the project
+2. Build the project, including the terminal plugin
+
+```sh
+./build.sh
+```
+
+3. Run the local build
+
+```sh
+./run.sh
+```
+
+For a manual Meson setup, use:
 
 ```sh
 meson setup --wrap-mode=default -Dportable=true build
@@ -42,7 +55,7 @@ meson compile -C build
 > notice we set the `portable` flag to true, this way the install process will
 > generate a directory structure that is easily relocatable.
 
-3. Install and profit!
+4. Install and profit!
 
 ```sh
 meson install -C build --destdir ../pragtical
