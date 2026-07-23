@@ -25,7 +25,18 @@
  */
 
 #include "lutf8.h"
+
+/* unidata.h contains static tables shared by multiple translation units.
+ * Some of those tables are intentionally unused by the tokenizer. */
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+#endif
 #include "unidata.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <assert.h>
 #include <string.h>
