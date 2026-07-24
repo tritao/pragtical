@@ -96,31 +96,6 @@ conf_data.set('PROJECT_SOURCE_DIR', meson.current_source_dir())
 # configured source path safe to embed in a Lua string.
 conf_data.set('PROJECT_SOURCE_DIR_LUA', meson.current_source_dir().replace('\\', '/'))
 conf_data.set('PROJECT_BUILD_DIR_LUA', meson.current_build_dir().replace('\\', '/'))
-
-# Describe native plugin development paths to the runtime without embedding
-# individual plugin names in the Lua startup code. Native plugins currently
-# follow the conventional plugins.<name>.lib<name> module layout.
-dev_plugin_roots_lua = '{}'
-dev_native_plugins_lua = '{}'
-if get_option('native_plugins').length() > 0
-    dev_plugin_roots_lua = '{'
-    dev_native_plugins_lua = '{'
-    foreach native_plugin : get_option('native_plugins')
-        plugin_source_dir = meson.current_source_dir() / 'subprojects' / native_plugin
-        plugin_build_dir = meson.current_build_dir() / 'subprojects' / native_plugin
-        dev_plugin_roots_lua += '"' + plugin_source_dir.replace('\\', '/') + '",'
-        dev_native_plugins_lua += '["plugins.' + native_plugin + '.lib' + native_plugin + '"] = {'
-        foreach plugin_suffix : ['so', 'dylib', 'dll']
-            plugin_path = plugin_build_dir / ('lib' + native_plugin + '.' + plugin_suffix)
-            dev_native_plugins_lua += '"' + plugin_path.replace('\\', '/') + '",'
-        endforeach
-        dev_native_plugins_lua += '},'
-    endforeach
-    dev_plugin_roots_lua += '}'
-    dev_native_plugins_lua += '}'
-endif
-conf_data.set('PROJECT_DEV_PLUGIN_ROOTS', dev_plugin_roots_lua)
-conf_data.set('PROJECT_DEV_NATIVE_PLUGINS', dev_native_plugins_lua)
 conf_data.set('PROJECT_VERSION', version)
 conf_data.set('PROJECT_ASSEMBLY_VERSION', meson.project_version() + '.0')
 conf_data.set('MOD_VERSION_MAJOR', mod_version[0])
@@ -488,22 +463,34 @@ if get_option('extra_languages') or get_option('lua_plugins').length() > 0
     subproject('plugins', default_options: plugin_options)
 endif
 
-# Build selected native plugins from checked-out subprojects.
-foreach native_plugin : get_option('native_plugins')
-    if native_plugin != 'terminal'
-        error('Unknown native plugin: ' + native_plugin)
-    endif
-endforeach
-
-if 'terminal' in get_option('native_plugins')
+# Build selected native plugins from checked-out subprojects. Each native
+# plugin exports its runtime metadata and build target to the parent project.
+dev_plugin_roots_lua = '{}'
+dev_native_plugins_lua = '{}'
+if get_option('native_plugins').length() > 0
     plugin_api_dep = declare_dependency(
         include_directories: include_directories('resources/include')
     )
     meson.override_dependency('pragtical_plugin_api', plugin_api_dep)
-    subproject('terminal', default_options: [
-        'data_dir=' + pragtical_datadir
-    ])
+    dev_plugin_roots_lua = '{'
+    dev_native_plugins_lua = '{'
+    foreach native_plugin : get_option('native_plugins')
+        native_plugin_project = subproject(native_plugin, default_options: [
+            'data_dir=' + pragtical_datadir
+        ])
+        plugin_module = native_plugin_project.get_variable('pragtical_native_plugin_module')
+        plugin_root = native_plugin_project.get_variable('pragtical_native_plugin_root')
+        plugin_target = native_plugin_project.get_variable('pragtical_native_plugin_target')
+        plugin_root_lua = plugin_root.replace('\\', '/').replace('"', '\\"')
+        plugin_path_lua = plugin_target.full_path().replace('\\', '/').replace('"', '\\"')
+        dev_plugin_roots_lua += '"' + plugin_root_lua + '",'
+        dev_native_plugins_lua += '["' + plugin_module + '"] = {"' + plugin_path_lua + '"},'
+    endforeach
+    dev_plugin_roots_lua += '}'
+    dev_native_plugins_lua += '}'
 endif
+conf_data.set('PROJECT_DEV_PLUGIN_ROOTS', dev_plugin_roots_lua)
+conf_data.set('PROJECT_DEV_NATIVE_PLUGINS', dev_native_plugins_lua)
 
 # Include the plugin manager
 if get_option('ppm')
