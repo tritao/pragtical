@@ -125,6 +125,7 @@ else
     arch_tuple = '@0@-@1@'.format(target_machine.cpu_family(), target_machine.system())
 endif
 pragtical_cargs += '-DPRAGTICAL_ARCH_TUPLE="@0@"'.format(arch_tuple)
+pragtical_cargs += '-DPRAGTICAL_SOURCE_DATA_DIR="@0@"'.format(meson.current_source_dir() / 'data')
 
 sqlite_enabled = false
 

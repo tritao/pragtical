@@ -13,6 +13,7 @@ int luaopen_encoding(lua_State* L);
 int luaopen_diff(lua_State *L);
 int luaopen_canvas(lua_State* L);
 int luaopen_tokenizer(lua_State *L);
+int luaopen_workbench_transport(lua_State *L);
 
 #ifdef PRAGTICAL_SQLITE
   int luaopen_sqlite(lua_State* L);
@@ -70,6 +71,7 @@ static const luaL_Reg libs[] = {
   { "diff",       luaopen_diff       },
   { "canvas",     luaopen_canvas     },
   { "tokenizer",  luaopen_tokenizer  },
+  { "workbench_transport", luaopen_workbench_transport },
   LUA_SQLITE
   LUA_NET
   LUA_REPL

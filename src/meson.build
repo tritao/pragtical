@@ -17,6 +17,7 @@ pragtical_sources = [
     'tokenizer/lutf8.c',
     'api/encoding.c',
     'api/diff.c',
+    'api/workbench_transport.c',
     'api/utils/lxlauxlib.c',
     'arena_allocator.c',
     'custom_events.c',
@@ -266,5 +267,22 @@ if host_machine.system() == 'windows'
         install_dir: pragtical_bindir,
         install: true,
         win_subsystem: 'console',
+    )
+endif
+
+if sqlite_enabled
+    workbench_agent_sources = files(
+        'workbench-agent/main.c',
+        'api/sqlite.c',
+        'api/workbench_transport.c',
+        'compat/compat-5.3.c',
+    )
+    executable('workbench-agent',
+        workbench_agent_sources,
+        include_directories: pragtical_includes,
+        dependencies: [lua_dep, sqlite_dep, libm, libdl, librt],
+        c_args: pragtical_cargs,
+        install_dir: pragtical_bindir,
+        install: true,
     )
 endif
