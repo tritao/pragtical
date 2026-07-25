@@ -356,6 +356,14 @@ if not get_option('source-only')
     )
 
     pragtical_deps = [lua_dep, sdl_dep, sdl_image, freetype_dep, harfbuzz_pragtical_dep, pcre2_dep, uchardet_dep, libm, libdl, librt]
+
+    sqlite_dep = dependency('sqlite3', required: false)
+    if sqlite_dep.found()
+        pragtical_deps += sqlite_dep
+        pragtical_cargs += '-DPRAGTICAL_SQLITE'
+    else
+        warning('SQLite3 not found; Workbench durable storage will be unavailable')
+    endif
 endif
 
 lua_compat_needed = lua_dep.version() < '5.3.0'

@@ -14,6 +14,13 @@ int luaopen_diff(lua_State *L);
 int luaopen_canvas(lua_State* L);
 int luaopen_tokenizer(lua_State *L);
 
+#ifdef PRAGTICAL_SQLITE
+  int luaopen_sqlite(lua_State* L);
+  #define LUA_SQLITE { "sqlite", luaopen_sqlite },
+#else
+  #define LUA_SQLITE
+#endif
+
 #ifdef PRAGTICAL_NET
   int luaopen_net(lua_State* L);
   #define LUA_NET { "net",  luaopen_net  },
@@ -63,6 +70,7 @@ static const luaL_Reg libs[] = {
   { "diff",       luaopen_diff       },
   { "canvas",     luaopen_canvas     },
   { "tokenizer",  luaopen_tokenizer  },
+  LUA_SQLITE
   LUA_NET
   LUA_REPL
   LUA53_COMPATIBILITY
@@ -71,6 +79,7 @@ static const luaL_Reg libs[] = {
 
 #undef LUA53_COMPATIBILITY
 #undef LUABIT_COMPATIBILITY
+#undef LUA_SQLITE
 
 void api_load_libs(lua_State *L) {
   for (int i = 0; libs[i].name; i++)

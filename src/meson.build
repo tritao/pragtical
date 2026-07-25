@@ -33,6 +33,10 @@ pragtical_sources = [
     'main.c',
 ]
 
+if sqlite_dep.found()
+    pragtical_sources += 'api/sqlite.c'
+endif
+
 if lua_jit_found
     pragtical_sources += 'ffiexports.c'
     if host_machine.system() != 'windows' and host_machine.system() != 'darwin'
