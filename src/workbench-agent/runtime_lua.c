@@ -1,10 +1,14 @@
 #include "api/api.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
-#ifndef _WIN32
 #include "terminal_runtime.h"
+
+#ifdef _WIN32
+#include <windows.h>
 #endif
 
 #define WORKBENCH_RUNTIME "WorkbenchRuntime"
@@ -12,7 +16,6 @@
 #define WORKBENCH_RUNTIME_MAX_ENVIRONMENT 255
 #define WORKBENCH_RUNTIME_MAX_OUTPUT (16u * 1024u * 1024u)
 
-#ifndef _WIN32
 typedef struct {
   terminal_runtime_t *runtime;
 } workbench_runtime;
@@ -38,10 +41,18 @@ static void free_strings(char **values) {
   free(values);
 }
 
+static char *copy_string(const char *value) {
+  size_t length = strlen(value) + 1;
+  char *result = malloc(length);
+  if (result) memcpy(result, value, length);
+  return result;
+}
+
 static char **copy_arguments(lua_State *L, int index, const char *command) {
+  index = lua_absindex(L, index);
   char **arguments = calloc(WORKBENCH_RUNTIME_MAX_ARGUMENTS + 2, sizeof(*arguments));
   if (!arguments) return NULL;
-  arguments[0] = strdup(command);
+  arguments[0] = copy_string(command);
   if (!arguments[0]) {
     free_strings(arguments);
     return NULL;
@@ -54,7 +65,7 @@ static char **copy_arguments(lua_State *L, int index, const char *command) {
       break;
     }
     const char *value = luaL_checkstring(L, -1);
-    arguments[item] = strdup(value);
+    arguments[item] = copy_string(value);
     lua_pop(L, 1);
     if (!arguments[item]) {
       free_strings(arguments);
@@ -65,6 +76,79 @@ static char **copy_arguments(lua_State *L, int index, const char *command) {
 }
 
 static char **copy_environment(lua_State *L, int index) {
+  index = lua_absindex(L, index);
+#ifdef _WIN32
+  wchar_t *keys[WORKBENCH_RUNTIME_MAX_ENVIRONMENT] = {0};
+  wchar_t *values[WORKBENCH_RUNTIME_MAX_ENVIRONMENT] = {0};
+  int count = 0;
+  if (lua_istable(L, index)) {
+    lua_pushnil(L);
+    while (count < WORKBENCH_RUNTIME_MAX_ENVIRONMENT && lua_next(L, index) != 0) {
+      const char *key = luaL_checkstring(L, -2);
+      const char *value = luaL_checkstring(L, -1);
+      int key_length = MultiByteToWideChar(CP_UTF8, 0, key, -1, NULL, 0);
+      int value_length = MultiByteToWideChar(CP_UTF8, 0, value, -1, NULL, 0);
+      if (key_length <= 0 || value_length <= 0) {
+        lua_pop(L, 1);
+        lua_settop(L, index);
+        goto error;
+      }
+      keys[count] = malloc(sizeof(wchar_t) * (size_t)key_length);
+      values[count] = malloc(sizeof(wchar_t) * (size_t)value_length);
+      if (!keys[count] || !values[count]
+          || !MultiByteToWideChar(CP_UTF8, 0, key, -1, keys[count], key_length)
+          || !MultiByteToWideChar(CP_UTF8, 0, value, -1, values[count], value_length)) {
+        lua_pop(L, 1);
+        lua_settop(L, index);
+        goto error;
+      }
+      ++count;
+      lua_pop(L, 1);
+    }
+  }
+  if (count == 0) return calloc(1, sizeof(char *));
+  size_t length = 1;
+  for (int item = 0; item < count; ++item) {
+    size_t key_length = wcslen(keys[item]);
+    size_t value_length = wcslen(values[item]);
+    if (key_length > SIZE_MAX - 3
+        || value_length > SIZE_MAX - key_length - 3) {
+      lua_settop(L, index);
+      goto error;
+    }
+    length += key_length + value_length + 2;
+  }
+  wchar_t *block = calloc(length, sizeof(wchar_t));
+  char **environment = calloc(2, sizeof(char *));
+  if (!block || !environment) {
+    free(block);
+    free(environment);
+    goto error;
+  }
+  wchar_t *cursor = block;
+  for (int item = 0; item < count; ++item) {
+    size_t key_length = wcslen(keys[item]);
+    size_t value_length = wcslen(values[item]);
+    memcpy(cursor, keys[item], key_length * sizeof(wchar_t));
+    cursor += key_length;
+    *cursor++ = L'=';
+    memcpy(cursor, values[item], (value_length + 1) * sizeof(wchar_t));
+    cursor += value_length + 1;
+  }
+  for (int item = 0; item < count; ++item) {
+    free(keys[item]);
+    free(values[item]);
+  }
+  environment[0] = (char *)block;
+  return environment;
+
+error:
+  for (int item = 0; item < count; ++item) {
+    free(keys[item]);
+    free(values[item]);
+  }
+  return NULL;
+#else
   char **environment = calloc(WORKBENCH_RUNTIME_MAX_ENVIRONMENT * 2 + 1,
     sizeof(*environment));
   if (!environment) return NULL;
@@ -74,8 +158,8 @@ static char **copy_environment(lua_State *L, int index) {
   while (lua_next(L, index) != 0 && item < WORKBENCH_RUNTIME_MAX_ENVIRONMENT * 2) {
     const char *key = luaL_checkstring(L, -2);
     const char *value = luaL_checkstring(L, -1);
-    environment[item++] = strdup(key);
-    environment[item++] = strdup(value);
+    environment[item++] = copy_string(key);
+    environment[item++] = copy_string(value);
     lua_pop(L, 1);
     if (!environment[item - 1] || !environment[item - 2]) {
       free_strings(environment);
@@ -83,6 +167,7 @@ static char **copy_environment(lua_State *L, int index) {
     }
   }
   return environment;
+#endif
 }
 
 static int runtime_gc(lua_State *L) {
@@ -214,14 +299,8 @@ static int runtime_close(lua_State *L) {
   lua_pushboolean(L, 1);
   return 1;
 }
-#else
-static int runtime_unsupported(lua_State *L) {
-  return luaL_error(L, "Workbench POSIX runtime is not available on this platform yet");
-}
-#endif
 
 int luaopen_workbench_runtime(lua_State *L) {
-#ifndef _WIN32
   static const luaL_Reg methods[] = {
     { "__gc", runtime_gc },
     { "write", runtime_write },
@@ -240,12 +319,6 @@ int luaopen_workbench_runtime(lua_State *L) {
     { "new", runtime_new },
     { NULL, NULL },
   };
-#else
-  static const luaL_Reg functions[] = {
-    { "new", runtime_unsupported },
-    { NULL, NULL },
-  };
-#endif
   luaL_newlib(L, functions);
   return 1;
 }
