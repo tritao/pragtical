@@ -33,7 +33,7 @@ pragtical_sources = [
     'main.c',
 ]
 
-if sqlite_dep.found()
+if sqlite_enabled
     pragtical_sources += 'api/sqlite.c'
 endif
 

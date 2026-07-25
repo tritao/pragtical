@@ -126,6 +126,8 @@ else
 endif
 pragtical_cargs += '-DPRAGTICAL_ARCH_TUPLE="@0@"'.format(arch_tuple)
 
+sqlite_enabled = false
+
 # Silence MSVC/clang-cl deprecation warnings for standard CRT functions
 # (strcpy/strerror/getenv/freopen/...). The "secure" *_s variants are
 # non-portable MSVC extensions; we use the standard functions intentionally.
@@ -357,12 +359,23 @@ if not get_option('source-only')
 
     pragtical_deps = [lua_dep, sdl_dep, sdl_image, freetype_dep, harfbuzz_pragtical_dep, pcre2_dep, uchardet_dep, libm, libdl, librt]
 
-    sqlite_dep = dependency('sqlite3', required: false)
-    if sqlite_dep.found()
+    sqlite_backend = get_option('sqlite')
+    if sqlite_backend == 'bundled'
+        sqlite_dep = subproject('sqlite').get_variable('sqlite_dep')
+        sqlite_enabled = true
+    elif sqlite_backend == 'system'
+        sqlite_dep = dependency('sqlite3', required: true)
+        sqlite_enabled = true
+    elif sqlite_backend == 'auto'
+        sqlite_dep = dependency('sqlite3', required: false)
+        if not sqlite_dep.found()
+            sqlite_dep = subproject('sqlite').get_variable('sqlite_dep')
+        endif
+        sqlite_enabled = true
+    endif
+    if sqlite_enabled
         pragtical_deps += sqlite_dep
         pragtical_cargs += '-DPRAGTICAL_SQLITE'
-    else
-        warning('SQLite3 not found; Workbench durable storage will be unavailable')
     endif
 endif
 
