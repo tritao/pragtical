@@ -489,6 +489,7 @@ endif
 # plugin exports its runtime metadata and build target to the parent project.
 dev_plugin_roots_lua = '{}'
 dev_native_plugins_lua = '{}'
+workbench_terminal_runtime_dep = disabler()
 if get_option('native_plugins').length() > 0
     plugin_api_dep = declare_dependency(
         include_directories: include_directories('resources/include')
@@ -503,6 +504,9 @@ if get_option('native_plugins').length() > 0
         plugin_module = native_plugin_project.get_variable('pragtical_native_plugin_module')
         plugin_root = native_plugin_project.get_variable('pragtical_native_plugin_root')
         plugin_target = native_plugin_project.get_variable('pragtical_native_plugin_target')
+        if native_plugin == 'terminal'
+            workbench_terminal_runtime_dep = native_plugin_project.get_variable('terminal_runtime_dep')
+        endif
         plugin_root_lua = plugin_root.replace('\\', '/').replace('"', '\\"')
         plugin_path_lua = plugin_target.full_path().replace('\\', '/').replace('"', '\\"')
         dev_plugin_roots_lua += '"' + plugin_root_lua + '",'

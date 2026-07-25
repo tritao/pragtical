@@ -192,6 +192,20 @@ static int server_close(lua_State *L) {
 
 static int server_accept(lua_State *L) {
   workbench_server *server = check_server(L);
+  int timeout_ms = (int)luaL_optinteger(L, 2, -1);
+  if (timeout_ms >= 0) {
+    int ready = wait_for_fd(server->fd, POLLIN, timeout_ms);
+    if (ready == 0) {
+      lua_pushnil(L);
+      lua_pushliteral(L, "timeout");
+      return 2;
+    }
+    if (ready < 0) {
+      lua_pushnil(L);
+      lua_pushliteral(L, "closed");
+      return 2;
+    }
+  }
   int fd;
   do {
     fd = accept(server->fd, NULL, NULL);

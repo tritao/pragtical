@@ -273,14 +273,20 @@ endif
 if sqlite_enabled
     workbench_agent_sources = files(
         'workbench-agent/main.c',
+        'workbench-agent/runtime_lua.c',
         'api/sqlite.c',
         'api/workbench_transport.c',
         'compat/compat-5.3.c',
     )
+    workbench_agent_deps = [lua_dep, sqlite_dep, libm, libdl, librt]
+    if not workbench_terminal_runtime_dep.found()
+        error('Workbench agent requires the terminal native plugin runtime')
+    endif
+    workbench_agent_deps += workbench_terminal_runtime_dep
     executable('workbench-agent',
         workbench_agent_sources,
         include_directories: pragtical_includes,
-        dependencies: [lua_dep, sqlite_dep, libm, libdl, librt],
+        dependencies: workbench_agent_deps,
         c_args: pragtical_cargs,
         install_dir: pragtical_bindir,
         install: true,
