@@ -91,14 +91,14 @@
       exit(1); \
     }
   #define CONSTANT_DECLARE(type, name, val) \
-    type name = val;
+    type name = val
 #else
   #define SYMBOL_DECLARE(ret, name, ...) \
     SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__);
   #define SYMBOL_DECLARE_VARARG(ret, name, ...) \
     SYMBOL_WRAP_DECL(ret, name, __VA_ARGS__, ...);
   #define CONSTANT_DECLARE(type, name, val) \
-    extern type name;
+    extern type name
 #endif
 
 
