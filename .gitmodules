@@ -6,3 +6,7 @@
 	path = data/plugins/workbench
 	url = https://github.com/tritao/pragtical-workbench.git
 	branch = main
+[submodule "data/plugins/scm"]
+	path = data/plugins/scm
+	url = https://github.com/pragtical/scm.git
+	branch = master
