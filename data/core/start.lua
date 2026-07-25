@@ -48,6 +48,7 @@ if PRAGTICAL_DEV_MODE then
   }
   for _, plugin_root in ipairs(PRAGTICAL_DEV_PLUGIN_ROOTS) do
     table.insert(dev_package_paths, plugin_root .. PATHSEP .. '?' .. PATHSEP .. 'init.lua')
+    table.insert(dev_package_paths, plugin_root .. PATHSEP .. '?.lua')
   end
   package.path = table.concat(dev_package_paths, ';') .. ';' .. package.path
 end
