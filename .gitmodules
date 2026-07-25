@@ -2,3 +2,7 @@
 	path = subprojects/terminal
 	url = https://github.com/tritao/terminal.git
 	branch = next
+[submodule "data/plugins/workbench"]
+	path = data/plugins/workbench
+	url = https://github.com/tritao/pragtical-workbench.git
+	branch = main
