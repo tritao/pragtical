@@ -126,7 +126,7 @@ copy_pragtical_build () {
     fi
     if [ -n "$terminal_binary" ]; then
       mkdir -p "$datadir/plugins/terminal"
-      cp -a "subprojects/terminal/plugins/terminal/init.lua" "$datadir/plugins/terminal"
+      cp -a "subprojects/terminal/plugins/terminal/." "$datadir/plugins/terminal"
       cp -a "$terminal_binary" "$datadir/plugins/terminal"
     fi
   fi
