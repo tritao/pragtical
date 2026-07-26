@@ -17,6 +17,7 @@ show_help() {
   echo "                              Default: '$(get_default_build_dir)'."
   echo "   --debug                    Debug this script."
   echo "-f --forcefallback            Force to build dependencies statically."
+  echo "   --sqlite BACKEND            Select SQLite backend: auto, system, bundled, or disabled."
   echo "-h --help                     Show this help and exit."
   echo "-p --prefix PREFIX            Install directory prefix. Default: '/'."
   echo "   --reconfigure              Reconfigure an existing build directory."
@@ -46,6 +47,7 @@ main() {
   local build_type="debugoptimized"
   local prefix=/
   local wrap_mode="--wrap-mode=default"
+  local sqlite=""
   local reconfigure=false
   local wipe=false
   local bundle=""
@@ -57,20 +59,24 @@ main() {
   local cross=""
   local cross_platform=""
   local cross_arch=""
-  local cross_file=""
+  local cross_file_path=""
+  local -a cross_file_args=()
 
   local lua_subproject_path=""
 
-  for i in "$@"; do
-    case $i in
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
       -h|--help)
         show_help
         exit 0
         ;;
       -b|--builddir)
+        if [[ $# -lt 2 || "$2" == -* ]]; then
+          echo "Error: $1 requires a build directory name."
+          exit 1
+        fi
         build_dir="$2"
-        shift
-        shift
+        shift 2
         ;;
       --debug)
         set -x
@@ -80,10 +86,29 @@ main() {
         wrap_mode="--wrap-mode=forcefallback"
         shift
         ;;
+      --sqlite)
+        if [[ $# -lt 2 || "$2" == -* ]]; then
+          echo "Error: $1 requires one of: auto, system, bundled, disabled."
+          exit 1
+        fi
+        case "$2" in
+          auto|system|bundled|disabled)
+            sqlite="-Dsqlite=$2"
+            ;;
+          *)
+            echo "Error: invalid SQLite backend: $2"
+            exit 1
+            ;;
+        esac
+        shift 2
+        ;;
       -p|--prefix)
+        if [[ $# -lt 2 || "$2" == -* ]]; then
+          echo "Error: $1 requires an install prefix."
+          exit 1
+        fi
         prefix="$2"
-        shift
-        shift
+        shift 2
         ;;
       --reconfigure)
         reconfigure=true
@@ -102,22 +127,20 @@ main() {
         shift
         ;;
       --plugins|--lua-plugins)
-        if [[ -z "$2" || "$2" == -* ]]; then
-          echo "Error: $i requires a comma-separated plugin list."
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "Error: $1 requires a comma-separated plugin list."
           exit 1
         fi
         lua_plugins="-Dlua_plugins=$2"
-        shift
-        shift
+        shift 2
         ;;
       --native-plugins)
-        if [[ -z "$2" || "$2" == -* ]]; then
-          echo "Error: $i requires a comma-separated native plugin list."
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "Error: $1 requires a comma-separated native plugin list."
           exit 1
         fi
         native_plugins="-Dnative_plugins=$2"
-        shift
-        shift
+        shift 2
         ;;
       -P|--portable)
         portable="-Dportable=true"
@@ -132,37 +155,43 @@ main() {
         shift
         ;;
       --cross-arch)
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "Error: $1 requires an architecture."
+          exit 1
+        fi
         cross="true"
         cross_arch="$2"
-        shift
-        shift
+        shift 2
         ;;
       --cross-platform)
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "Error: $1 requires a platform."
+          exit 1
+        fi
         cross="true"
         cross_platform="$2"
-        shift
-        shift
+        shift 2
         ;;
       --cross-file)
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "Error: $1 requires a Meson cross file."
+          exit 1
+        fi
         cross="true"
-        cross_file="$2"
-        shift
-        shift
+        cross_file_path="$2"
+        shift 2
         ;;
       -r|--release)
         build_type="release"
         shift
         ;;
       *)
-        # unknown option
+        echo "Error: unknown option: $1"
+        show_help
+        exit 1
         ;;
     esac
   done
-
-  if [[ -n $1 ]]; then
-    show_help
-    exit 1
-  fi
 
   if [[ $platform == "macos" && -n $bundle && -n $portable ]]; then
       echo "Warning: \"bundle\" and \"portable\" specified; excluding portable package."
@@ -172,10 +201,10 @@ main() {
   # if CROSS_ARCH is used, it will be picked up
   cross="${cross:-${CROSS_ARCH:-}}"
   if [[ -n "$cross" ]]; then
-    if [[ -n "$cross_file" ]] && ([[ -z "$cross_arch" ]] || [[ -z "$cross_platform" ]]); then
+    if [[ -n "$cross_file_path" ]] && ([[ -z "$cross_arch" ]] || [[ -z "$cross_platform" ]]); then
       echo "Warning: --cross-platform or --cross-platform not set; guessing it from the filename."
       # remove file extensions and directories from the path
-      cross_file_name="${cross_file##*/}"
+      cross_file_name="${cross_file_path##*/}"
       cross_file_name="${cross_file_name%%.*}"
       # cross_platform is the string before encountering the first hyphen
       if [[ -z "$cross_platform" ]]; then
@@ -190,7 +219,7 @@ main() {
     fi
     platform="${cross_platform:-$platform}"
     arch="${cross_arch:-$arch}"
-    cross_file=("--cross-file" "${cross_file:-resources/cross/$platform-$arch.ini}")
+    cross_file_args=("--cross-file" "${cross_file_path:-resources/cross/$platform-$arch.ini}")
     # reload build_dir because platform and arch might change
     build_dir="$(get_default_build_dir "$platform" "$arch")"
   fi
@@ -234,11 +263,12 @@ main() {
     fi
 
     CFLAGS="${CFLAGS:-}" LDFLAGS="${LDFLAGS:-}" meson setup \
+      "${build_dir}" \
       $setup_mode \
       --buildtype=$build_type \
       --prefix "$prefix" \
       $ppm \
-      "${cross_file[@]}" \
+      "${cross_file_args[@]}" \
       $wrap_mode \
       $bundle \
       $portable \
@@ -246,8 +276,8 @@ main() {
       $lto \
       $lua_plugins \
       $native_plugins \
-      -Doptimization=3 \
-      "${build_dir}"
+      $sqlite \
+      -Doptimization=3
   else
     echo "Reusing existing build directory: ${build_dir}"
   fi

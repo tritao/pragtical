@@ -16,6 +16,7 @@ jobs:
     name: Linux
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         config:
         - { name: "GCC", cc: gcc, cxx: g++ }
@@ -47,8 +48,9 @@ jobs:
         run: bash scripts/install-dependencies.sh --debug
       - name: Build
         run: |
+          set -o pipefail
           bash --version
-          bash ./build.sh --debug --forcefallback --portable
+          bash ./build.sh --debug --forcefallback --sqlite auto --portable 2>&1 | tee ci-build.log
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -62,10 +64,21 @@ jobs:
         with:
           name: Linux x86_64
           path: ${{ env.INSTALL_NAME }}.tar.gz
+      - name: Upload Build Diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics-linux-${{ matrix.config.name }}
+          if-no-files-found: warn
+          path: |
+            ci-build.log
+            build*/meson-logs/**
+            build*/meson-private/coredata.dat
 
   build_macos:
     name: macOS
     strategy:
+      fail-fast: false
       matrix:
         config:
           - arch: x86_64
@@ -103,8 +116,9 @@ jobs:
         run: bash scripts/install-dependencies.sh --debug
       - name: Build
         run: |
+          set -o pipefail
           bash --version
-          bash ./build.sh --bundle --debug --forcefallback
+          bash ./build.sh --bundle --debug --forcefallback --sqlite auto 2>&1 | tee ci-build.log
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -116,11 +130,22 @@ jobs:
         with:
           name: macOS DMG ${{ matrix.config.arch }}
           path: ${{ env.INSTALL_NAME }}.dmg
+      - name: Upload Build Diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics-macos-${{ matrix.config.arch }}
+          if-no-files-found: warn
+          path: |
+            ci-build.log
+            build*/meson-logs/**
+            build*/meson-private/coredata.dat
 
   build_windows_msys2:
     name: Windows
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
         config:
           # - {msystem: MINGW32, arch: i686, target: x86}
@@ -166,8 +191,9 @@ jobs:
         run: bash scripts/install-dependencies.sh --debug
       - name: Build
         run: |
+          set -o pipefail
           bash --version
-          bash ./build.sh --debug --forcefallback
+          bash ./build.sh --debug --forcefallback --sqlite auto 2>&1 | tee ci-build.log
       - name: Run Tests
         run: |
           source scripts/common.sh
@@ -182,11 +208,22 @@ jobs:
         with:
           name: Windows (MSYS) ${{ matrix.config.target }}
           path: ${{ env.INSTALL_NAME }}.zip
+      - name: Upload Build Diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics-windows-msys-${{ matrix.config.target }}
+          if-no-files-found: warn
+          path: |
+            ci-build.log
+            build*/meson-logs/**
+            build*/meson-private/coredata.dat
 
   build_windows_msvc:
     name: Windows (MSVC)
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
         arch:
           # - { target: x86, name: i686 }
@@ -216,11 +253,14 @@ jobs:
           "LUA_SUBPROJECT_PATH=subprojects/lua-5.4.6" >> $env:GITHUB_ENV
       - name: Configure
         run: |
-          meson setup --wrap-mode=forcefallback -Dppm=false -Dnative_plugins=terminal build
+          meson setup --wrap-mode=forcefallback -Dppm=false -Dsqlite=auto -Dnative_plugins=terminal build 2>&1 | Tee-Object -FilePath ci-configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build
         run: |
-          meson compile -j 1 -C build
-          meson install -C build --destdir="../pragtical"
+          meson compile -j 1 -C build 2>&1 | Tee-Object -FilePath ci-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          meson install -C build --destdir="../pragtical" 2>&1 | Tee-Object -FilePath ci-install.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package
         run: |
           Remove-Item -Recurse -Force -Path "pragtical/lib","pragtical/include"
@@ -230,3 +270,15 @@ jobs:
         with:
           name: Windows (MSVC) ${{ matrix.arch.target }}
           path: ${{ env.INSTALL_NAME }}.zip
+      - name: Upload Build Diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics-windows-msvc-${{ matrix.arch.name }}
+          if-no-files-found: warn
+          path: |
+            ci-configure.log
+            ci-build.log
+            ci-install.log
+            build/meson-logs/**
+            build/meson-private/coredata.dat
