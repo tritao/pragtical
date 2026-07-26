@@ -7,8 +7,24 @@ $agent = Join-Path $buildDirectory "src\workbench-agent.exe"
 $dataRoot = Join-Path $root "data"
 
 # The MSYS2 build is statically linked where possible, but the MinGW runtime
-# and any remaining shared dependencies are installed in these directories.
-$env:Path = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:Path"
+# and any remaining shared dependencies are installed in the MSYS2 tree. The
+# setup-msys2 action provides the actual installation path because hosted
+# runners do not use a stable location.
+$msys2Root = $env:MSYS2_LOCATION
+if (-not $msys2Root) {
+  throw "MSYS2_LOCATION was not provided by the setup-msys2 action"
+}
+if (-not (Test-Path (Join-Path $msys2Root "mingw64\bin"))) {
+  throw "MSYS2 installation was not found: $msys2Root"
+}
+
+$runtimeDirectories = @(
+  (Join-Path $buildDirectory "subprojects\terminal"),
+  (Join-Path $msys2Root "mingw64\bin"),
+  (Join-Path $msys2Root "usr\bin")
+) | Where-Object { Test-Path $_ }
+$env:Path = "$($runtimeDirectories -join ';');$env:Path"
+Write-Host "Using MSYS2 runtime: $msys2Root"
 $env:SDL_VIDEODRIVER = "dummy"
 $env:SDL_VIDEO_DRIVER = "dummy"
 

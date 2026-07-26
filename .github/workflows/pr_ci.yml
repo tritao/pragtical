@@ -161,6 +161,7 @@ jobs:
           submodules: recursive
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: ${{ matrix.config.msystem }}
           install: >-
@@ -200,6 +201,8 @@ jobs:
           SDL_VIDEO_DRIVER=dummy ./scripts/run-local "$(get_default_build_dir)" test scripts/lua/tests
       - name: Run Workbench Windows Tests
         shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: ./scripts/ci/workbench-windows.ps1
       - name: Package
         run: bash scripts/package.sh --version ${INSTALL_REF} --debug --binary
