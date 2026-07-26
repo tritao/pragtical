@@ -834,6 +834,9 @@ end
 function common.mkdirp(path)
   local stat = system.get_file_info(path)
   if stat and stat.type then
+    if stat.type == "dir" then
+      return true
+    end
     return false, "path exists", path
   end
   local subdirs = {}

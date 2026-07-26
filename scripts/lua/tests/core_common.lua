@@ -76,6 +76,13 @@ test.describe("core.common", function()
     end
   end)
 
+  test.describe("mkdirp", function()
+    test.test("is idempotent for existing directories", function(context)
+      local ok, err = common.mkdirp(join_path(context.temp_root, "projects"))
+      test.ok(ok, err)
+    end)
+  end)
+
   test.describe("path_suggest", function()
     test.test("suggests relative paths from the current directory", function(context)
       system.chdir(context.temp_root)
