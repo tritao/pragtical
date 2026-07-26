@@ -1,6 +1,10 @@
 name: Pull Requests CI
 
 on:
+  push:
+    branches:
+      - next
+
   pull_request:
     branches:
       - '*'
