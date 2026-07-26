@@ -147,6 +147,7 @@ static const char *init_code =
   "      start_file = checkout_start_file\n"
   "    end\n"
   "  end\n"
+  "  PRAGTICAL_START_FILE = start_file\n"
   "  dofile(start_file)\n"
   "  core = require(os.getenv('PRAGTICAL_RUNTIME') or 'core')\n"
   "  core.init()\n"

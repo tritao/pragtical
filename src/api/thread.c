@@ -295,22 +295,12 @@ static void copy_global(const char* global, lua_State* from, lua_State* to)
   lua_pop(from, 1);
 }
 
-#ifdef _WIN32
-#define PRAGTICAL_PATHSEP_PATTERN "\\\\"
-#define PRAGTICAL_NONPATHSEP_PATTERN "[^\\\\]+"
-#else
-#define PRAGTICAL_PATHSEP_PATTERN "/"
-#define PRAGTICAL_NONPATHSEP_PATTERN "[^/]+"
-#endif
-
 static void init_start(lua_State* L)
 {
-  /* partial code taken from main.c */
+  /* The main state resolves the correct installed or checkout startup file.
+   * Reuse that path instead of duplicating startup discovery here. */
   const char *lua_code = \
-    "local match = require('utf8extra').match\n"
-    "local exedir = match(EXEFILE, '^(.*)" PRAGTICAL_PATHSEP_PATTERN PRAGTICAL_NONPATHSEP_PATTERN "$')\n"
-    "local prefix = os.getenv('PRAGTICAL_PREFIX') or match(exedir, '^(.*)" PRAGTICAL_PATHSEP_PATTERN "bin$')\n"
-    "dofile((MACOS_RESOURCES or (prefix and prefix .. '/share/pragtical' or exedir .. '/data')) .. '/core/start.lua')\n"
+    "dofile(PRAGTICAL_START_FILE)\n"
   ;
 
   if (luaL_loadstring(L, lua_code)) {
@@ -375,6 +365,8 @@ static int f_thread_create(lua_State *L)
   copy_global("EXEFILE", L, thread->L);
   copy_global("HOME", L, thread->L);
   copy_global("LUAJIT", L, thread->L);
+  copy_global("PRAGTICAL_START_FILE", L, thread->L);
+  copy_global("PRAGTICAL_DEV_MODE", L, thread->L);
 
 #ifdef MACOS_USE_BUNDLE
   copy_global("MACOS_RESOURCES", L, thread->L);

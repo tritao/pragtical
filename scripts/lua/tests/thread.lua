@@ -57,6 +57,22 @@ test.describe("thread", function()
     test.ok(thread.get_cpu_count() > 0)
   end)
 
+  test.test("initializes the Pragtical module path in workers", function()
+    local suffix = tostring(system.get_process_id()) .. "-" .. math.floor(system.get_time() * 1000000)
+    local channel_name = "thread-tests-module-path-" .. suffix
+    local channel = thread.get_channel(channel_name)
+    channel:clear()
+
+    local worker = thread.create("module-path-worker", function(cn)
+      local ok, common = pcall(require, "core.common")
+      thread.get_channel(cn):push(ok and type(common.merge) == "function")
+      return ok and 0 or 1
+    end, channel_name)
+    test.not_nil(worker)
+    test.equal(channel:wait(), true)
+    test.equal(worker:wait(), 0)
+  end)
+
   test.test("supply returns after pop consumes the value", function()
     local suffix = tostring(system.get_process_id()) .. "-" .. math.floor(system.get_time() * 1000000)
     local channel_name = "thread-tests-supply-pop-" .. suffix
