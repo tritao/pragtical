@@ -28,6 +28,14 @@ typedef struct {
   int once;
 } agent_options;
 
+static int is_directory(const struct stat *info) {
+#ifdef _WIN32
+  return (info->st_mode & _S_IFMT) == _S_IFDIR;
+#else
+  return S_ISDIR(info->st_mode);
+#endif
+}
+
 static int system_get_file_info(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   struct stat info;
@@ -36,7 +44,7 @@ static int system_get_file_info(lua_State *L) {
     return 1;
   }
   lua_newtable(L);
-  lua_pushstring(L, S_ISDIR(info.st_mode) ? "dir" : "file");
+  lua_pushstring(L, is_directory(&info) ? "dir" : "file");
   lua_setfield(L, -2, "type");
   lua_pushinteger(L, (lua_Integer)info.st_size);
   lua_setfield(L, -2, "size");

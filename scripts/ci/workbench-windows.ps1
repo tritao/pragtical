@@ -23,9 +23,10 @@ function Invoke-WorkbenchTest {
   param([Parameter(Mandatory = $true)][string]$TestFile)
 
   Write-Host "Running Workbench test: $TestFile"
-  & $binary test $TestFile
-  if ($LASTEXITCODE -ne 0) {
-    throw "Workbench test failed: $TestFile (exit code $LASTEXITCODE)"
+  $process = Start-Process -FilePath $binary -ArgumentList @("test", $TestFile) `
+    -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+  if ($process.ExitCode -ne 0) {
+    throw "Workbench test failed: $TestFile (exit code $($process.ExitCode))"
   }
 }
 

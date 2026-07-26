@@ -181,6 +181,7 @@ LUAMOD_API int luaopen_compat53_string (lua_State *L) {
 #  define luaopen_io luaopen_io_XXX
 
 #include <locale.h>
+#include <inttypes.h>
 #include <lualib.h>
 
 #  if !defined(lua_getlocaledecpoint)
@@ -188,7 +189,7 @@ LUAMOD_API int luaopen_compat53_string (lua_State *L) {
 #  endif
 
 #  ifndef LUA_INTEGER_FMT
-#    define LUA_INTEGER_FMT "%ld"
+#    define LUA_INTEGER_FMT "%" PRIdPTR
 #  endif
 #  ifndef LUAI_UACINT
 #    define LUAI_UACINT lua_Integer
