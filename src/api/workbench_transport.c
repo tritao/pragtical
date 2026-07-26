@@ -485,7 +485,7 @@ static int connection_receive(lua_State *L) {
     CloseHandle(connection->handle);
     connection->handle = INVALID_HANDLE_VALUE;
     lua_pushnil(L);
-    lua_pushliteral(L, result == 0 ? "timeout" : "closed");
+    lua_pushstring(L, result == 0 ? "timeout" : "closed");
     return 2;
   }
   lua_pushlstring(L, data, length);
