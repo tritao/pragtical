@@ -9,6 +9,8 @@ struct dirmonitor_internal {
 
 
 static int get_changes_dirmonitor(struct dirmonitor_internal* monitor, char* buffer, int buffer_size) {
+  if (!monitor)
+    return 0;
   HANDLE handle = monitor->handle;
   if (handle && handle != INVALID_HANDLE_VALUE) {
     DWORD bytes_transferred;
@@ -33,7 +35,15 @@ static struct dirmonitor_internal* init_dirmonitor(void) {
 }
 
 
+static void wake_dirmonitor(struct dirmonitor_internal* monitor) {
+  if (monitor && monitor->handle && monitor->handle != INVALID_HANDLE_VALUE)
+    CancelIoEx(monitor->handle, NULL);
+}
+
+
 static void close_monitor_handle(struct dirmonitor_internal* monitor) {
+  if (!monitor)
+    return;
   if (monitor->handle && monitor->handle != INVALID_HANDLE_VALUE) {
     HANDLE handle = monitor->handle;
     monitor->handle = NULL;
@@ -61,6 +71,8 @@ static int translate_changes_dirmonitor(struct dirmonitor_internal* monitor, cha
 
 
 static int add_dirmonitor(struct dirmonitor_internal* monitor, const char* path) {
+  if (!monitor)
+    return -1;
   close_monitor_handle(monitor);
   monitor->handle = CreateFileA(path, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
   return !monitor->handle || monitor->handle == INVALID_HANDLE_VALUE ? -1 : 1;
@@ -77,6 +89,7 @@ static int get_mode_dirmonitor(void) { return 1; }
 struct dirmonitor_backend dirmonitor_win32 = {
   .name = "win32",
   .init = init_dirmonitor,
+  .wake = wake_dirmonitor,
   .deinit = deinit_dirmonitor,
   .get_changes = get_changes_dirmonitor,
   .translate_changes = translate_changes_dirmonitor,

@@ -1,4 +1,4 @@
 [wrap-git]
 url = https://github.com/pragtical/plugin-manager.git
-revision = head
+revision = 78605e1688cf48d502a45464de342d884ad4cc23
 depth = 1

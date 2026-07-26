@@ -21,6 +21,8 @@ struct dirmonitor_internal {
 
 static struct dirmonitor_internal* init_dirmonitor(void) {
   struct dirmonitor_internal* monitor = SDL_calloc(1, sizeof(struct dirmonitor_internal));
+  if (!monitor)
+    return NULL;
   monitor->stream = NULL;
   monitor->queue = NULL;
   monitor->path = NULL;
@@ -92,8 +94,18 @@ static void stop_monitor_stream(struct dirmonitor_internal* monitor) {
 
 
 static void deinit_dirmonitor(struct dirmonitor_internal* monitor) {
+  if (!monitor)
+    return;
   stop_monitor_stream(monitor);
   SDL_DestroyMutex(monitor->lock);
+}
+
+
+static void wake_dirmonitor(struct dirmonitor_internal* monitor) {
+  if (monitor && monitor->fds[1] != -1) {
+    ssize_t written = write(monitor->fds[1], "", 1);
+    (void)written;
+  }
 }
 
 
@@ -184,6 +196,8 @@ static int translate_changes_dirmonitor(
 
 
 static int add_dirmonitor(struct dirmonitor_internal* monitor, const char* path) {
+  if (!monitor)
+    return -1;
   stop_monitor_stream(monitor);
 
   if (pipe(monitor->fds) != 0) {
@@ -251,7 +265,8 @@ static int add_dirmonitor(struct dirmonitor_internal* monitor, const char* path)
 
 
 static void remove_dirmonitor(struct dirmonitor_internal* monitor, int fd) {
-  stop_monitor_stream(monitor);
+  if (monitor)
+    stop_monitor_stream(monitor);
 }
 
 
@@ -260,6 +275,7 @@ static int get_mode_dirmonitor(void) { return 1; }
 struct dirmonitor_backend dirmonitor_fsevents = {
   .name = "fsevents",
   .init = init_dirmonitor,
+  .wake = wake_dirmonitor,
   .deinit = deinit_dirmonitor,
   .get_changes = get_changes_dirmonitor,
   .translate_changes = translate_changes_dirmonitor,

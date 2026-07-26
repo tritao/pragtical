@@ -78,21 +78,38 @@ package_plugin_manager() {
   fi
   if [ ! -e "$file" ]; then
     if which wget ; then
-      if ! wget -O "$file" "https://github.com/pragtical/plugin-manager/releases/download/continuous/${file}" ; then
+      if ! wget -O "$file" "https://github.com/pragtical/plugin-manager/releases/download/${PPM_VERSION}/${file}" ; then
         echo "Could not download PPM for the arch '${arch}'."
-        return
+        return 1
       fi
     elif which curl ; then
-      if ! curl -L -o "$file" "https://github.com/pragtical/plugin-manager/releases/download/continuous/${file}" ; then
+      if ! curl -L -o "$file" "https://github.com/pragtical/plugin-manager/releases/download/${PPM_VERSION}/${file}" ; then
         echo "Could not download PPM for the arch '${arch}'."
-        return
+        return 1
       fi
     else
       echo "Could not download PPM: 'wget' or 'curl' not found."
-      return
+      return 1
     fi
     chmod 0755 "$file"
   fi
+  verify_ppm_binary "$file"
+
+  # The normal application builds deliberately disable the PPM Meson
+  # subproject and use the published architecture-specific binary instead.
+  # The Lua support files are still needed by the packaged plugin manager, so
+  # fetch the source-only subproject when a fresh checkout does not have it.
+  if [[ ! -d "subprojects/ppm/libraries" || ! -d "subprojects/ppm/plugins/plugin_manager" ]]; then
+    if ! meson subprojects download ppm; then
+      echo "Could not download the PPM source files."
+      return 1
+    fi
+  fi
+  if [[ ! -d "subprojects/ppm/libraries" || ! -d "subprojects/ppm/plugins/plugin_manager" ]]; then
+    echo "PPM source files are unavailable after download."
+    return 1
+  fi
+
   cp -av "subprojects/ppm/libraries" "${data_dir}/"
   cp -av "subprojects/ppm/plugins/plugin_manager" "${data_dir}/plugins/"
   cp "$file" "${data_dir}/plugins/plugin_manager/"

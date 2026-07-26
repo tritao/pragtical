@@ -40,6 +40,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #ifdef __GNUC__
 #define UNUSED __attribute__((__unused__))
@@ -2366,7 +2367,7 @@ SYMBOL_WRAP_DECL(void, luaL_openlibs, lua_State *L) {
   )
 
 #define IMPORT_CONSTANT(name, type) \
-  name = (type)((long) symbol(#name))
+  name = (type)((intptr_t) symbol(#name))
 
 void pragtical_plugin_init(void *XL) {
   void* (*symbol)(const char *);

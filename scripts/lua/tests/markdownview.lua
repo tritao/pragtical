@@ -1104,12 +1104,23 @@ Paragraph with a footnote.[^note]
     node:add_view(view)
     node:set_active_view(view)
     system.set_clipboard("")
-    test.equal(command.perform("markdown-view:copy"), true)
-    test.equal(system.get_clipboard(), "Title")
+    local command_result = command.perform("markdown-view:copy")
+    local command_clipboard = system.get_clipboard()
     local copy_shortcut = PLATFORM == "Mac OS X" and "cmd+c" or "ctrl+c"
-    test.equal(keymap.map[copy_shortcut][1], "markdown-view:copy")
-    test.equal(keymap.map[copy_shortcut][2], "doc:copy")
+    local copy_bindings = keymap.map[copy_shortcut]
+    local modifier = PLATFORM == "Mac OS X" and "left command" or "left ctrl"
+    keymap.on_key_pressed(modifier)
+    local key_result = keymap.on_key_pressed("c")
+    keymap.on_key_released(modifier)
+    local key_clipboard = system.get_clipboard()
     node:remove_view(core.root_view.root_node, view)
+
+    test.equal(command_result, true)
+    test.equal(command_clipboard, "Title")
+    test.contains(copy_bindings, "markdown-view:copy")
+    test.contains(copy_bindings, "doc:copy")
+    test.equal(key_result, true)
+    test.equal(key_clipboard, "Title")
   end)
 
   test.test("shows context copy entry when markdown text is selected", function()

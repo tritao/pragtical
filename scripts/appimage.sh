@@ -71,13 +71,14 @@ download_plugin_manager() {
   local arch=$1
   local file="ppm.${arch}-linux"
   if [ ! -e "$file" ]; then
-    if ! wget -O "$file" "https://github.com/pragtical/plugin-manager/releases/download/continuous/ppm.${arch}-linux" ; then
+    if ! wget -O "$file" "https://github.com/pragtical/plugin-manager/releases/download/${PPM_VERSION}/ppm.${arch}-linux" ; then
       echo "Could not download PPM for the arch '${arch}'."
       exit 1
     else
       chmod 0755 "$file"
     fi
   fi
+  verify_ppm_binary "$file"
 }
 
 prune_appdir_development_files() {

@@ -4,6 +4,7 @@
 struct dirmonitor_backend {
   const char* name;
   struct dirmonitor_internal* (*init)(void);
+  void (*wake)(struct dirmonitor_internal*);
   void (*deinit)(struct dirmonitor_internal*);
   int (*get_changes)(struct dirmonitor_internal*, char*, int);
   int (*translate_changes)(struct dirmonitor_internal*, char*, int, int (*)(int, const char*, void*), void*);

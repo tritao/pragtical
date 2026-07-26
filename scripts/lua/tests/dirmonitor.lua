@@ -97,13 +97,16 @@ test.describe("dirmonitor", function()
     end
   end)
 
-  test.test("detects watched file replacement", function(context)
+  test.test("detects replacement in a watched directory", function(context)
     local path = context.temp_root .. PATHSEP .. "watched.txt"
     local temp_path = context.temp_root .. PATHSEP .. "watched.tmp"
     write_file(path, "before\n")
 
     local monitor = dirmonitor.new()
-    local watch_path = monitor:mode() == "single" and context.temp_root or path
+    -- A file watch follows the original inode. Replacing a file with rename()
+    -- necessarily creates a new inode, so watch the containing directory on
+    -- every backend and test the event that remains portable across platforms.
+    local watch_path = context.temp_root
     local watch_id = monitor:watch(watch_path)
     test.type(watch_id, "number")
     test.ok(watch_id >= 0)

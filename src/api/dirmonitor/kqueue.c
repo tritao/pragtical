@@ -16,13 +16,15 @@ struct dirmonitor_internal {
 
 static struct dirmonitor_internal* init_dirmonitor(void) {
   struct dirmonitor_internal* monitor = SDL_calloc(1, sizeof(struct dirmonitor_internal));
+  if (!monitor)
+    return NULL;
   monitor->fd = kqueue();
   return monitor;
 }
 
 
 static void deinit_dirmonitor(struct dirmonitor_internal* monitor) {
-  if (monitor->fd >= 0)
+  if (monitor && monitor->fd >= 0)
     close(monitor->fd);
 }
 
@@ -30,7 +32,7 @@ static void deinit_dirmonitor(struct dirmonitor_internal* monitor) {
 static int get_changes_dirmonitor(struct dirmonitor_internal* monitor, char* buffer, int buffer_size) {
   struct timespec ts = { 0, 100 * 1000000 }; // 100 ms
 
-  if (monitor->fd < 0)
+  if (!monitor || monitor->fd < 0)
     return -1;
 
   int nev = kevent(monitor->fd, NULL, 0, (struct kevent*)buffer, buffer_size / sizeof(struct kevent), &ts);
@@ -50,7 +52,7 @@ static int translate_changes_dirmonitor(struct dirmonitor_internal* monitor, cha
 
 
 static int add_dirmonitor(struct dirmonitor_internal* monitor, const char* path) {
-  if (monitor->fd < 0)
+  if (!monitor || monitor->fd < 0)
     return -1;
 
   int flags = O_RDONLY;
