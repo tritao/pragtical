@@ -261,6 +261,20 @@ function Node:set_active_view(view)
 end
 
 
+---Replace the active view without changing this leaf's layout or lock.
+---@param view core.view Replacement view
+---@return core.view old_view The view that occupied this leaf
+function Node:replace_view(view)
+  assert(self.type == "leaf", "Tried to replace a view in a non-leaf node")
+  local old_view = self.active_view
+  local index = self:get_view_idx(old_view)
+  assert(index, "Tried to replace a view that is not in this node")
+  self.views[index] = view
+  self:set_active_view(view)
+  return old_view
+end
+
+
 ---Get the index of a view in this node's view list.
 ---@param view core.view View to find
 ---@return integer? idx Index of the view, or nil if not found

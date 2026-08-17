@@ -13,6 +13,7 @@ local DocView = require "core.docview"
 local ImageView = require "core.imageview"
 local MarkdownView = require "core.markdownview"
 local DirWatch = require "core.dirwatch"
+local SidebarHost = require "core.sidebar"
 
 ---Configuration options for `treeview` plugin.
 ---@class config.plugins.treeview
@@ -588,6 +589,19 @@ if config.plugins.toolbarview ~= false and toolbar_plugin then
   })
 end
 
+local toolbar_visible = toolbar_view and toolbar_view.visible
+SidebarHost:register("files", view, {
+  on_show = function()
+    if toolbar_view then toolbar_view.visible = toolbar_visible ~= false end
+  end,
+  on_hide = function()
+    if toolbar_view then
+      toolbar_visible = toolbar_view.visible
+      toolbar_view.visible = false
+    end
+  end
+})
+
 
 local old_remove_project = core.remove_project
 function core.remove_project(project, force)
@@ -714,7 +728,11 @@ local previous_view = nil
 -- Register the TreeView commands and keymap
 command.add(nil, {
   ["treeview:toggle"] = function()
-    view.visible = not view.visible
+    if SidebarHost:is_active("files") then
+      SidebarHost:toggle("files")
+    else
+      SidebarHost:show("files")
+    end
   end,
 
   ["treeview:toggle-hidden"] = function()
@@ -1130,7 +1148,7 @@ config.plugins.treeview.config_spec = {
     type = "toggle",
     default = false,
     on_apply = function(value)
-      view.visible = not value
+      SidebarHost:set_visible("files", not value)
     end
   },
   {

@@ -41,7 +41,8 @@ local function save_session()
       window_mode = core.window_mode ~= "fullscreen"
         and core.window_mode or core.prev_window_mode,
       previous_find = core.previous_find,
-      previous_replace = core.previous_replace
+      previous_replace = core.previous_replace,
+      sidebar = core.sidebar and core.sidebar:get_state() or nil
     }
     fp:write("return " .. common.serialize(session, {pretty = true}))
     fp:close()
@@ -444,6 +445,8 @@ function core.init()
   end
 
   local session = load_session()
+  core.sidebar = require "core.sidebar"
+  core.sidebar:load_state(session.sidebar)
   core.recent_projects = session.recents or {}
   core.previous_find = session.previous_find or {}
   core.previous_replace = session.previous_replace or {}
