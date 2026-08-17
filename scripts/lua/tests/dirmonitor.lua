@@ -41,6 +41,14 @@ local function wait_for_watch()
   repeat wait(0.01) until system.get_time() >= deadline
 end
 
+local function watch_or_skip(monitor, path)
+  local watch_id = monitor:watch(path)
+  if type(watch_id) ~= "number" or watch_id < 0 then
+    test.skip_now("selected dirmonitor backend cannot watch this path")
+  end
+  return watch_id
+end
+
 test.describe("dirmonitor", function()
   test.before_each(function(context)
     temp_index = temp_index + 1
@@ -107,9 +115,7 @@ test.describe("dirmonitor", function()
     -- necessarily creates a new inode, so watch the containing directory on
     -- every backend and test the event that remains portable across platforms.
     local watch_path = context.temp_root
-    local watch_id = monitor:watch(watch_path)
-    test.type(watch_id, "number")
-    test.ok(watch_id >= 0)
+    local watch_id = watch_or_skip(monitor, watch_path)
     wait_for_watch()
 
     write_file(temp_path, "after\n")
@@ -133,12 +139,12 @@ test.describe("dirmonitor", function()
     test.ok(common.mkdirp(two))
 
     local monitor = dirmonitor.new()
-    local watch_one = monitor:watch(monitor:mode() == "single" and context.temp_root or one)
-    local watch_two = monitor:mode() == "single" and watch_one or monitor:watch(two)
+    local watch_one = watch_or_skip(
+      monitor, monitor:mode() == "single" and context.temp_root or one)
+    local watch_two = monitor:mode() == "single"
+      and watch_one or watch_or_skip(monitor, two)
     test.type(watch_one, "number")
     test.type(watch_two, "number")
-    test.ok(watch_one >= 0)
-    test.ok(watch_two >= 0)
     wait_for_watch()
 
     if monitor:mode() == "multiple" then

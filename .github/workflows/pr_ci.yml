@@ -55,6 +55,11 @@ jobs:
         run: |
           source scripts/common.sh
           SDL_VIDEO_DRIVER=dummy ./scripts/run-local "$(get_default_build_dir)" test scripts/lua/tests
+      - name: Run Workbench Tests
+        if: ${{ matrix.config.cc == 'gcc' }}
+        run: |
+          source scripts/common.sh
+          SDL_VIDEO_DRIVER=dummy ./scripts/test-workbench.sh "$(get_default_build_dir)"
       - name: Package
         if: ${{ matrix.config.cc == 'gcc' }}
         run: bash scripts/package.sh --version ${INSTALL_REF} --debug --binary
