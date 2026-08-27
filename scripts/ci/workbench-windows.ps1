@@ -6,6 +6,9 @@ $binary = Join-Path $buildDirectory "src\pragtical.exe"
 $agent = Join-Path $buildDirectory "src\workbench-agent.exe"
 $dataRoot = Join-Path $root "data"
 $workbenchTestTimeoutMilliseconds = 120000
+$agentLogDirectory = Join-Path $env:RUNNER_TEMP `
+  "pragtical-workbench-agent-logs-$env:GITHUB_RUN_ID"
+New-Item -ItemType Directory -Force -Path $agentLogDirectory | Out-Null
 
 # The MSYS2 build is statically linked where possible, but the MinGW runtime
 # and any remaining shared dependencies are installed in the MSYS2 tree. The
@@ -61,8 +64,9 @@ function Start-WorkbenchAgent {
 
   New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
   $endpoint = "workbench-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$Workspace"
-  $stdout = Join-Path $StateDirectory "agent.stdout.log"
-  $stderr = Join-Path $StateDirectory "agent.stderr.log"
+  $logName = Split-Path $StateDirectory -Leaf
+  $stdout = Join-Path $agentLogDirectory "$logName.stdout.log"
+  $stderr = Join-Path $agentLogDirectory "$logName.stderr.log"
   $arguments = @(
     "--data-root", $dataRoot,
     "--data-dir", $StateDirectory,
@@ -120,8 +124,9 @@ function Test-WorkbenchAgentLock {
   Write-Host "Running Workbench agent ownership-lock test"
   $primary = Start-WorkbenchAgent $Workspace $StateDirectory
   $secondaryEndpoint = "workbench-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$Workspace-secondary"
-  $secondaryStdout = Join-Path $StateDirectory "second.stdout.log"
-  $secondaryStderr = Join-Path $StateDirectory "second.stderr.log"
+  $logName = "$(Split-Path $StateDirectory -Leaf)-secondary"
+  $secondaryStdout = Join-Path $agentLogDirectory "$logName.stdout.log"
+  $secondaryStderr = Join-Path $agentLogDirectory "$logName.stderr.log"
   $arguments = @(
     "--data-root", $dataRoot,
     "--data-dir", $StateDirectory,
