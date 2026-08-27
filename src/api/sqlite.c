@@ -20,6 +20,13 @@ static int database_error(lua_State *L, sqlite3 *handle, int result) {
     handle ? sqlite3_errmsg(handle) : "database is unavailable");
 }
 
+static int execute_sql(sqlite3 *handle, const char *sql, char **error_message) {
+  int result = sqlite3_exec(handle, sql, NULL, NULL, error_message);
+  if (result != SQLITE_OK && error_message && !*error_message)
+    *error_message = sqlite3_mprintf("%s", sqlite3_errmsg(handle));
+  return result;
+}
+
 static int bind_value(lua_State *L, sqlite3_stmt *statement, int index, int value_index) {
   int result;
   switch (lua_type(L, value_index)) {
@@ -187,10 +194,13 @@ static int database_tostring(lua_State *L) {
 static int sqlite_open(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+  int readonly = 0;
   if (lua_istable(L, 2)) {
     lua_getfield(L, 2, "readonly");
-    if (lua_toboolean(L, -1))
+    if (lua_toboolean(L, -1)) {
+      readonly = 1;
       flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX;
+    }
     lua_pop(L, 1);
   }
 
@@ -205,8 +215,33 @@ static int sqlite_open(lua_State *L) {
     database->handle = NULL;
     return lua_error(L);
   }
-  sqlite3_busy_timeout(database->handle, 5000);
-  sqlite3_exec(database->handle, "PRAGMA foreign_keys = ON", NULL, NULL, NULL);
+  result = sqlite3_busy_timeout(database->handle, 5000);
+  if (result != SQLITE_OK) {
+    database_error(L, database->handle, result);
+    return 0;
+  }
+
+  const char *pragmas[] = {
+    "PRAGMA foreign_keys = ON",
+    readonly ? NULL : "PRAGMA journal_mode = WAL",
+    "PRAGMA synchronous = FULL",
+    "PRAGMA wal_autocheckpoint = 1000",
+    NULL,
+  };
+  for (int index = 0; pragmas[index]; ++index) {
+    char *error_message = NULL;
+    result = execute_sql(database->handle, pragmas[index], &error_message);
+    if (result != SQLITE_OK) {
+      const char *message = error_message
+        ? error_message : sqlite3_errmsg(database->handle);
+      lua_pushfstring(L, "SQLite configuration error (%d): %s", result, message);
+      sqlite3_free(error_message);
+      sqlite3_close(database->handle);
+      database->handle = NULL;
+      return lua_error(L);
+    }
+    sqlite3_free(error_message);
+  }
   luaL_getmetatable(L, API_TYPE_SQLITE);
   lua_setmetatable(L, -2);
   return 1;
