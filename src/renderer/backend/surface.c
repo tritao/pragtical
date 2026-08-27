@@ -13,6 +13,14 @@ static bool surface_init_window(RenWindow *ren) {
 static void surface_resize_window(UNUSED RenWindow *ren) {
 }
 
+static void surface_set_vsync(RenWindow *ren, bool enabled) {
+  if (ren && ren->window)
+    SDL_SetWindowSurfaceVSync(
+      ren->window,
+      enabled ? 1 : SDL_WINDOW_SURFACE_VSYNC_DISABLED
+    );
+}
+
 static void surface_destroy_window(UNUSED RenWindow *ren) {
   SDL_free(ren->backend_data);
   ren->backend_data = NULL;
@@ -142,6 +150,7 @@ static const RenBackend surface_backend = {
   .capture_window = surface_capture_window,
   .init_window = surface_init_window,
   .resize_window = surface_resize_window,
+  .set_vsync = surface_set_vsync,
   .destroy_window = surface_destroy_window,
   .init_canvas = surface_init_canvas,
   .destroy_canvas = surface_destroy_canvas,
