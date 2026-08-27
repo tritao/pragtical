@@ -1,5 +1,9 @@
 #include "api/api.h"
 
+#ifdef PRAGTICAL_NET
+#include <SDL3/SDL.h>
+#endif
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -245,12 +249,23 @@ static int system_list_dir(lua_State *L) {
 #endif
 }
 
+#ifdef PRAGTICAL_NET
+static int system_get_time(lua_State *L) {
+  double now = SDL_GetPerformanceCounter() / (double)SDL_GetPerformanceFrequency();
+  lua_pushnumber(L, now);
+  return 1;
+}
+#endif
+
 static void install_system_stub(lua_State *L) {
   static const luaL_Reg functions[] = {
     { "get_file_info", system_get_file_info },
     { "mkdir", system_mkdir },
     { "absolute_path", system_absolute_path },
     { "list_dir", system_list_dir },
+#ifdef PRAGTICAL_NET
+    { "get_time", system_get_time },
+#endif
     { NULL, NULL },
   };
   luaL_newlib(L, functions);

@@ -206,6 +206,7 @@ for test_file in \
   data/plugins/workbench/tests/client.lua \
   data/plugins/workbench/tests/persistence.lua \
   data/plugins/workbench/tests/protocol.lua \
+  data/plugins/workbench/tests/http_protocol.lua \
   data/plugins/workbench/tests/provider.lua \
   data/plugins/workbench/tests/provider_recovery.lua \
   data/plugins/workbench/tests/sakura_import.lua \

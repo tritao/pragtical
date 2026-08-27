@@ -8,6 +8,7 @@ local http = {}
 local core = require "core"
 local json = require "core.json"
 local common = require "core.common"
+local protocol = require "core.http_protocol"
 
 ---@alias http.method
 ---| "GET"
@@ -83,32 +84,7 @@ local function clone_options(options)
   return clone_value(options or {})
 end
 
----@param headers table<string,http.header_value>
----@param key string
----@param value string
-local function append_header_value(headers, key, value)
-  local existing = headers[key]
-  if existing == nil then
-    headers[key] = value
-  elseif type(existing) == "table" then
-    existing[#existing + 1] = value
-  else
-    headers[key] = { existing, value }
-  end
-end
-
----@param headers table<string,http.header_value>?
----@param key string
----@return string?
-local function get_header_value(headers, key)
-  if not headers then return nil end
-
-  local value = headers[key]
-  if type(value) == "table" then
-    return value[#value]
-  end
-  return value
-end
+local get_header_value = protocol.header
 
 -- URL encode
 ---@param str string
@@ -225,84 +201,8 @@ local function is_query_method(method)
   return method == "GET" or method == "HEAD" or method == "OPTIONS"
 end
 
--- Parse URL
----@param url string
----@return table|nil parsed
----@return string? err
-local function parse_url(url)
-  local protocol, host, port, path = url:match("^(https?)://([^/:?#]+):?(%d*)(.*)$")
-  if not protocol then return nil, "invalid URL" end
-  port = tonumber(port) or (protocol == "https" and 443 or 80)
-  path = path ~= "" and path or "/"
-  return { protocol = protocol, host = host, port = port, path = path }
-end
-
----@param protocol string
----@param host string
----@param port integer
----@return string
-local function build_origin(protocol, host, port)
-  local default_port = protocol == "https" and 443 or 80
-  if port == default_port then
-    return protocol .. "://" .. host
-  end
-  return protocol .. "://" .. host .. ":" .. port
-end
-
----@param base_path string
----@param relative_path string
----@return string
-local function resolve_relative_path(base_path, relative_path)
-  local dir = base_path:gsub("[^/]*$", "")
-  if dir == "" then dir = "/" end
-
-  local path = relative_path:sub(1, 1) == "/" and relative_path or (dir .. relative_path)
-  local trailing_slash = path:sub(-1) == "/"
-  local segments = {}
-
-  for segment in path:gmatch("[^/]+") do
-    if segment == ".." then
-      if #segments > 0 then
-        table.remove(segments)
-      end
-    elseif segment ~= "." and segment ~= "" then
-      segments[#segments + 1] = segment
-    end
-  end
-
-  local normalized = "/" .. table.concat(segments, "/")
-  if trailing_slash and normalized ~= "/" then
-    normalized = normalized .. "/"
-  end
-  return normalized
-end
-
----@param parsed table
----@param location string
----@return string
-local function resolve_redirect_url(parsed, location)
-  if location:match("^[%a][%w+%.%-]*://") then
-    return location
-  end
-
-  if location:sub(1, 2) == "//" then
-    return parsed.protocol .. ":" .. location
-  end
-
-  local origin = build_origin(parsed.protocol, parsed.host, parsed.port)
-  local base_path = parsed.path:match("^[^?#]*") or "/"
-
-  if location:sub(1, 1) == "/" then
-    return origin .. location
-  end
-
-  if location:sub(1, 1) == "?" or location:sub(1, 1) == "#" then
-    return origin .. base_path .. location
-  end
-
-  local location_path, location_suffix = location:match("^([^?#]*)(.*)$")
-  return origin .. resolve_relative_path(base_path, location_path) .. location_suffix
-end
+local parse_url = protocol.parse_url
+local resolve_redirect_url = protocol.resolve_redirect_url
 
 -- Resolve hostname
 ---@param hostname string
@@ -324,44 +224,9 @@ local function resolve_host(hostname, should_abort)
   end
 end
 
--- Build HTTP request string
----@param method http.method
----@param path string
----@param host string
----@param port integer
----@param protocol string
----@param headers table<string,string>?
----@param body string?
----@return string
-local function build_request(method, path, host, port, protocol, headers, body)
-  headers = headers or {}
-  local normalized = {}
-  for k, v in pairs(headers) do
-    normalized[k:lower()] = v
-  end
-
-  if not normalized["user-agent"] and http.user_agent then
-    normalized["user-agent"] = http.user_agent
-  end
-
-  local host_header = build_origin(protocol, host, port):gsub("^https?://", "")
-  local req = { string.format("%s %s HTTP/1.1", method, path) }
-  req[#req + 1] = "Host: " .. host_header
-  req[#req + 1] = "Connection: close"
-  if body then
-    req[#req + 1] = "Content-Length: " .. #body
-  end
-
-  for k, v in pairs(normalized) do
-    local header_name = k:gsub("(%a)([%w%-]*)", function(first, rest)
-      return first:upper() .. rest:lower()
-    end)
-    req[#req + 1] = header_name .. ": " .. v
-  end
-
-  req[#req + 1] = ""
-  req[#req + 1] = body or ""
-  return table.concat(req, "\r\n")
+local function build_request(method, path, host, port, scheme, headers, body)
+  return protocol.build_request(method, path, host, port, scheme, headers, body,
+    http.user_agent)
 end
 
 -- Write all data
@@ -481,26 +346,7 @@ local function make_reader(conn, should_abort)
   }
 end
 
--- Parse HTTP response headers
----@param header_lines string[]
----@return integer? status
----@return table<string,http.header_value> headers
-local function parse_http_response_headers(header_lines)
-  if #header_lines == 0 then return nil, {} end
-
-  local status_line = header_lines[1]
-  local _, _, status = status_line:find("HTTP/%d+%.%d+ (%d%d%d)")
-  local headers = {}
-
-  for i = 2, #header_lines do
-    local k, v = header_lines[i]:match("^([%w%-]+):%s*(.+)$")
-    if k and v then
-      append_header_value(headers, k:lower(), v)
-    end
-  end
-
-  return tonumber(status), headers
-end
+local parse_http_response_headers = protocol.parse_header_lines
 
 ---@param content_type string?
 local function is_json_content_type(content_type)
@@ -843,65 +689,12 @@ function http.sse(url, options)
   local on_done = request_options.on_done
   request_options.on_event = nil
 
-  local pending = ""
-  local current_data = {}
+  local parser = protocol.SSE.new(options.last_event_id)
   local current_info
-  local current_event_name
-  local current_event_id = options.last_event_id
-  local current_retry
 
-  local function reset_event()
-    current_data = {}
-    current_event_name = nil
-    current_retry = nil
-  end
-
-  local function dispatch_event()
-    if #current_data == 0 then
-      reset_event()
-      return
-    end
-
-    on_event({
-      event = current_event_name or "message",
-      data = table.concat(current_data, "\n"),
-      id = current_event_id,
-      retry = current_retry
-    }, current_info)
-    reset_event()
-  end
-
-  local function process_line(line)
-    if line == "" then
-      dispatch_event()
-      return
-    end
-
-    if line:sub(1, 1) == ":" then
-      return
-    end
-
-    local field, value = line:match("^([^:]+):?(.*)$")
-    if not field then
-      return
-    end
-    if value:sub(1, 1) == " " then
-      value = value:sub(2)
-    end
-
-    if field == "event" then
-      current_event_name = value
-    elseif field == "data" then
-      current_data[#current_data + 1] = value
-    elseif field == "id" then
-      if not value:find("\0", 1, true) then
-        current_event_id = value
-      end
-    elseif field == "retry" then
-      local retry = tonumber(value)
-      if retry and retry >= 0 then
-        current_retry = retry
-      end
+  local function emit(events)
+    for _, event in ipairs(events) do
+      on_event(event, current_info)
     end
   end
 
@@ -913,32 +706,12 @@ function http.sse(url, options)
   end
 
   request_options.on_chunk = function(chunk)
-    pending = pending .. chunk
-
-    while true do
-      local idx = pending:find("\n", 1, true)
-      if not idx then break end
-
-      local line = pending:sub(1, idx - 1)
-      pending = pending:sub(idx + 1)
-      if line:sub(-1) == "\r" then
-        line = line:sub(1, -2)
-      end
-
-      process_line(line)
-    end
+    emit(parser:feed(chunk))
   end
 
   request_options.on_done = function(ok, err, _, info)
     if ok then
-      if #pending > 0 then
-        local line = pending
-        if line:sub(-1) == "\r" then
-          line = line:sub(1, -2)
-        end
-        process_line(line)
-      end
-      dispatch_event()
+      emit(parser:finish())
     end
     on_done(ok, err, info)
   end
