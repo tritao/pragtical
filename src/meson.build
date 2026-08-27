@@ -202,9 +202,10 @@ endif
 
 # enable networking support
 if get_option('net')
-    pragtical_deps += dependency('SDL3_net', 'sdl3-net', fallback: ['sdl3_net', 'sdl3_net_dep'],
+    sdl3_net_dep = dependency('SDL3_net', 'sdl3-net', fallback: ['sdl3_net', 'sdl3_net_dep'],
         default_options: default_fallback_options + ['default_library=static']
     )
+    pragtical_deps += sdl3_net_dep
 
     use_system_mbedtls = get_option('wrap_mode') != 'forcefallback'
 
@@ -289,6 +290,10 @@ if sqlite_enabled
     endif
     workbench_agent_deps += workbench_terminal_runtime_dep
     workbench_agent_deps += workbench_terminal_emulator_dep
+    if get_option('net')
+        workbench_agent_sources += 'api/net.c'
+        workbench_agent_deps += [sdl3_net_dep, mbedtls_dep, mbedx509_dep, tfpsacrypto_dep]
+    endif
     executable('workbench-agent',
         workbench_agent_sources,
         include_directories: pragtical_includes,

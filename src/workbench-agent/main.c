@@ -26,6 +26,9 @@ int luaopen_sqlite(lua_State *L);
 int luaopen_workbench_transport(lua_State *L);
 int luaopen_workbench_runtime(lua_State *L);
 int luaopen_workbench_emulator(lua_State *L);
+#ifdef PRAGTICAL_NET
+int luaopen_net(lua_State *L);
+#endif
 
 typedef struct {
   const char *data_root;
@@ -427,6 +430,9 @@ int main(int argc, char **argv) {
   register_module(L, "workbench_transport", luaopen_workbench_transport);
   register_module(L, "workbench_runtime", luaopen_workbench_runtime);
   register_module(L, "workbench_emulator", luaopen_workbench_emulator);
+#ifdef PRAGTICAL_NET
+  register_module(L, "net", luaopen_net);
+#endif
   int result = run_agent(L, &options) ? 0 : 1;
   lua_close(L);
   release_workbench_lock(&lock);
