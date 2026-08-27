@@ -44,17 +44,25 @@ start_agent() {
   local workspace="$1"
   local data_dir="$2"
   local endpoint="$3"
+  local fault_boundary="${4:-}"
   local log_file="$data_dir/agent.log"
 
   mkdir -p -- "$data_dir"
   chmod 700 -- "$data_dir"
   rm -f -- "$endpoint"
-  "$agent" \
-    --data-root "$root_dir/data" \
-    --data-dir "$data_dir" \
-    --endpoint "$endpoint" \
-    --workspace "$workspace" \
-    >"$log_file" 2>&1 &
+  local -a command=(
+    "$agent"
+    --data-root "$root_dir/data"
+    --data-dir "$data_dir"
+    --endpoint "$endpoint"
+    --workspace "$workspace"
+  )
+  if [[ -n "$fault_boundary" ]]; then
+    WORKBENCH_AGENT_FAULT_BOUNDARY="$fault_boundary" \
+      "${command[@]}" >"$log_file" 2>&1 &
+  else
+    "${command[@]}" >"$log_file" 2>&1 &
+  fi
   agent_pid=$!
 
   for _ in $(seq 1 100); do
@@ -100,6 +108,48 @@ run_test() {
   copied_runtime=true
 }
 
+run_fault_test() {
+  local endpoint="$1"
+  local phase="$2"
+  local action="$3"
+  local runtime_id="$4"
+  local operation_id="$5"
+  local boundary="$6"
+  local -a command=("$script_dir/run-local")
+
+  if [[ "$copied_runtime" == true ]]; then
+    command+=("-keep")
+  fi
+  command+=("$build_dir" "test" "data/plugins/workbench/tests/agent_fault.lua")
+  WORKBENCH_AGENT_ENDPOINT="$endpoint" \
+    WORKBENCH_FAULT_PHASE="$phase" \
+    WORKBENCH_FAULT_ACTION="$action" \
+    WORKBENCH_FAULT_BOUNDARY="$boundary" \
+    WORKBENCH_FAULT_RUNTIME_ID="$runtime_id" \
+    WORKBENCH_FAULT_OPERATION_ID="$operation_id" \
+    SDL_VIDEO_DRIVER=dummy "${command[@]}"
+  copied_runtime=true
+}
+
+run_fault_case() {
+  local boundary="$1"
+  local action="$2"
+  local case_name="${boundary}_${action}"
+  local fault_state="$state_root/fault-$case_name"
+  local fault_endpoint="$fault_state/workbench.sock"
+  local runtime_id="fault-$case_name"
+  local operation_id="fault-$action-$runtime_id"
+
+  echo "Running Workbench fault boundary: $boundary"
+  start_agent "agent-fault-test" "$fault_state" "$fault_endpoint" "$boundary"
+  run_fault_test "$fault_endpoint" trigger "$action" "$runtime_id" "$operation_id" "$boundary"
+  stop_agent
+
+  start_agent "agent-fault-test" "$fault_state" "$fault_endpoint"
+  run_fault_test "$fault_endpoint" recover "$action" "$runtime_id" "$operation_id" "$boundary"
+  stop_agent
+}
+
 echo "Running Workbench in-process tests"
 for test_file in \
   data/plugins/workbench/tests/client.lua \
@@ -132,5 +182,15 @@ echo "Running Workbench agent terminal tests"
 start_agent "agent-terminal-test" "$terminal_state" "$terminal_endpoint"
 run_test data/plugins/workbench/tests/agent_terminal.lua "$terminal_endpoint"
 stop_agent
+
+echo "Running Workbench runtime lifecycle fault tests"
+run_fault_case after_starting_commit start
+run_fault_case after_process_creation start
+run_fault_case before_running_commit start
+run_fault_case after_stopping_commit stop
+run_fault_case during_close stop
+run_fault_case before_stopped_commit stop
+run_fault_case after_running_commit start
+run_fault_case after_stopped_commit stop
 
 echo "Workbench tests completed successfully."

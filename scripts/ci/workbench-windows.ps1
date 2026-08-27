@@ -49,7 +49,8 @@ function Invoke-WorkbenchTest {
 function Start-WorkbenchAgent {
   param(
     [Parameter(Mandatory = $true)][string]$Workspace,
-    [Parameter(Mandatory = $true)][string]$StateDirectory
+    [Parameter(Mandatory = $true)][string]$StateDirectory,
+    [string]$FaultBoundary = ""
   )
 
   New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
@@ -63,9 +64,18 @@ function Start-WorkbenchAgent {
     "--workspace", $Workspace
   )
 
-  $process = Start-Process -FilePath $agent -ArgumentList $arguments `
-    -WorkingDirectory $root -PassThru -RedirectStandardOutput $stdout `
-    -RedirectStandardError $stderr
+  $previousFaultBoundary = [Environment]::GetEnvironmentVariable(
+    "WORKBENCH_AGENT_FAULT_BOUNDARY", "Process")
+  try {
+    [Environment]::SetEnvironmentVariable("WORKBENCH_AGENT_FAULT_BOUNDARY",
+      $(if ($FaultBoundary) { $FaultBoundary } else { $null }), "Process")
+    $process = Start-Process -FilePath $agent -ArgumentList $arguments `
+      -WorkingDirectory $root -PassThru -RedirectStandardOutput $stdout `
+      -RedirectStandardError $stderr
+  } finally {
+    [Environment]::SetEnvironmentVariable("WORKBENCH_AGENT_FAULT_BOUNDARY",
+      $previousFaultBoundary, "Process")
+  }
 
   for ($attempt = 0; $attempt -lt 100; $attempt++) {
     if ($process.HasExited) {
@@ -185,6 +195,77 @@ function Invoke-AgentTest {
   }
 }
 
+function Invoke-WorkbenchFaultTest {
+  param(
+    [Parameter(Mandatory = $true)][string]$Endpoint,
+    [Parameter(Mandatory = $true)][string]$Phase,
+    [Parameter(Mandatory = $true)][string]$Action,
+    [Parameter(Mandatory = $true)][string]$Boundary,
+    [Parameter(Mandatory = $true)][string]$RuntimeId,
+    [Parameter(Mandatory = $true)][string]$OperationId
+  )
+
+  $values = @{
+    WORKBENCH_AGENT_ENDPOINT = $Endpoint
+    WORKBENCH_FAULT_PHASE = $Phase
+    WORKBENCH_FAULT_ACTION = $Action
+    WORKBENCH_FAULT_BOUNDARY = $Boundary
+    WORKBENCH_FAULT_RUNTIME_ID = $RuntimeId
+    WORKBENCH_FAULT_OPERATION_ID = $OperationId
+  }
+  $previous = @{}
+  try {
+    foreach ($name in $values.Keys) {
+      $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+      [Environment]::SetEnvironmentVariable($name, $values[$name], "Process")
+    }
+    Invoke-WorkbenchTest "data/plugins/workbench/tests/agent_fault.lua"
+  } finally {
+    foreach ($name in $values.Keys) {
+      [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
+    }
+  }
+}
+
+function Invoke-AgentFaultCase {
+  param(
+    [Parameter(Mandatory = $true)][string]$Boundary,
+    [Parameter(Mandatory = $true)][string]$Action
+  )
+
+  $caseName = "${Boundary}_${Action}"
+  $stateDirectory = Join-Path $env:RUNNER_TEMP `
+    "pragtical-workbench-fault-$env:GITHUB_RUN_ID-$caseName"
+  if (Test-Path $stateDirectory) {
+    Remove-Item -Recurse -Force $stateDirectory
+  }
+  New-Item -ItemType Directory -Force -Path $stateDirectory | Out-Null
+  $runtimeId = "fault-$caseName"
+  $operationId = "fault-$Action-$runtimeId"
+  try {
+    Write-Host "Running Workbench fault boundary: $Boundary"
+    $instance = Start-WorkbenchAgent "agent-fault-test" $stateDirectory $Boundary
+    try {
+      Invoke-WorkbenchFaultTest $instance.Endpoint "trigger" $Action $Boundary `
+        $runtimeId $operationId
+    } finally {
+      Stop-WorkbenchAgent $instance
+    }
+
+    $instance = Start-WorkbenchAgent "agent-fault-test" $stateDirectory
+    try {
+      Invoke-WorkbenchFaultTest $instance.Endpoint "recover" $Action $Boundary `
+        $runtimeId $operationId
+    } finally {
+      Stop-WorkbenchAgent $instance
+    }
+  } finally {
+    if (Test-Path $stateDirectory) {
+      Remove-Item -Recurse -Force $stateDirectory
+    }
+  }
+}
+
 $workbenchTests = @(
   "data/plugins/workbench/tests/client.lua",
   "data/plugins/workbench/tests/persistence.lua",
@@ -222,6 +303,15 @@ try {
       Remove-Item -Recurse -Force $terminalState
     }
   }
+
+  Invoke-AgentFaultCase "after_starting_commit" "start"
+  Invoke-AgentFaultCase "after_process_creation" "start"
+  Invoke-AgentFaultCase "before_running_commit" "start"
+  Invoke-AgentFaultCase "after_stopping_commit" "stop"
+  Invoke-AgentFaultCase "during_close" "stop"
+  Invoke-AgentFaultCase "before_stopped_commit" "stop"
+  Invoke-AgentFaultCase "after_running_commit" "start"
+  Invoke-AgentFaultCase "after_stopped_commit" "stop"
 } finally {
   if (Test-Path $agentState) {
     Remove-Item -Recurse -Force $agentState
