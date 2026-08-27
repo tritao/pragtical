@@ -183,6 +183,13 @@ start_agent "agent-terminal-test" "$terminal_state" "$terminal_endpoint"
 run_test data/plugins/workbench/tests/agent_terminal.lua "$terminal_endpoint"
 stop_agent
 
+stress_state="$state_root/agent-stress"
+stress_endpoint="$stress_state/workbench.sock"
+echo "Running Workbench agent stress tests"
+start_agent "agent-stress-test" "$stress_state" "$stress_endpoint"
+run_test data/plugins/workbench/tests/agent_stress.lua "$stress_endpoint"
+stop_agent
+
 echo "Running Workbench runtime lifecycle fault tests"
 run_fault_case after_starting_commit start
 run_fault_case after_process_creation start

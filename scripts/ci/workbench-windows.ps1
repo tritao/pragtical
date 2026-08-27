@@ -304,6 +304,20 @@ try {
     }
   }
 
+  $stressState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-stress-$env:GITHUB_RUN_ID"
+  if (Test-Path $stressState) {
+    Remove-Item -Recurse -Force $stressState
+  }
+  New-Item -ItemType Directory -Force -Path $stressState | Out-Null
+  try {
+    Invoke-AgentTest "agent-stress-test" $stressState `
+      "data/plugins/workbench/tests/agent_stress.lua"
+  } finally {
+    if (Test-Path $stressState) {
+      Remove-Item -Recurse -Force $stressState
+    }
+  }
+
   Invoke-AgentFaultCase "after_starting_commit" "start"
   Invoke-AgentFaultCase "after_process_creation" "start"
   Invoke-AgentFaultCase "before_running_commit" "start"
