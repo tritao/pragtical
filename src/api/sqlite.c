@@ -1,12 +1,21 @@
 #include "api.h"
 
+#include <limits.h>
+#include <stddef.h>
+#include <string.h>
 #include <sqlite3.h>
 
 #define API_TYPE_SQLITE "SQLiteDatabase"
+#define API_TYPE_SQLITE_BLOB "SQLiteBlob"
 
 typedef struct {
   sqlite3 *handle;
 } sqlite_database_t;
+
+typedef struct {
+  size_t length;
+  unsigned char data[];
+} sqlite_blob_t;
 
 static sqlite_database_t *check_database(lua_State *L, int index) {
   sqlite_database_t *database = luaL_checkudata(L, index, API_TYPE_SQLITE);
@@ -15,9 +24,20 @@ static sqlite_database_t *check_database(lua_State *L, int index) {
   return database;
 }
 
-static int database_error(lua_State *L, sqlite3 *handle, int result) {
-  return luaL_error(L, "SQLite error (%d): %s", result,
-    handle ? sqlite3_errmsg(handle) : "database is unavailable");
+static int push_database_error(lua_State *L, sqlite3 *handle, int result,
+    const char *message) {
+  lua_pushnil(L);
+  lua_newtable(L);
+  lua_pushinteger(L, result);
+  lua_setfield(L, -2, "code");
+  lua_pushinteger(L, handle ? sqlite3_extended_errcode(handle) : result);
+  lua_setfield(L, -2, "extended_code");
+  lua_pushstring(L, message ? message
+    : (handle ? sqlite3_errmsg(handle) : "database is unavailable"));
+  lua_setfield(L, -2, "message");
+  lua_pushstring(L, sqlite3_errstr(result));
+  lua_setfield(L, -2, "name");
+  return 2;
 }
 
 static int execute_sql(sqlite3 *handle, const char *sql, char **error_message) {
@@ -45,15 +65,23 @@ static int bind_value(lua_State *L, sqlite3_stmt *statement, int index, int valu
     case LUA_TSTRING: {
       size_t length;
       const char *value = lua_tolstring(L, value_index, &length);
+      if (length > (size_t)INT_MAX)
+        return luaL_error(L, "SQLite text parameters cannot exceed %d bytes", INT_MAX);
       result = sqlite3_bind_text(statement, index, value, (int)length, SQLITE_TRANSIENT);
       break;
     }
+    case LUA_TUSERDATA: {
+      sqlite_blob_t *blob = luaL_testudata(L, value_index, API_TYPE_SQLITE_BLOB);
+      if (!blob)
+        return luaL_error(L, "SQLite parameters must be nil, boolean, number, string, or sqlite.blob");
+      result = sqlite3_bind_blob(statement, index, blob->data, (int)blob->length,
+        SQLITE_TRANSIENT);
+      break;
+    }
     default:
-      return luaL_error(L, "SQLite parameters must be nil, boolean, number, or string");
+      return luaL_error(L, "SQLite parameters must be nil, boolean, number, string, or sqlite.blob");
   }
-  if (result != SQLITE_OK)
-    return database_error(L, sqlite3_db_handle(statement), result);
-  return 0;
+  return result;
 }
 
 static int bind_parameters(lua_State *L, sqlite3_stmt *statement, int parameters_index) {
@@ -75,8 +103,8 @@ static int bind_parameters(lua_State *L, sqlite3_stmt *statement, int parameters
     }
     int result = bind_value(L, statement, index, -1);
     lua_pop(L, 1);
-    if (result != 0)
-      return result;
+    if (result != SQLITE_OK)
+      return push_database_error(L, sqlite3_db_handle(statement), result, NULL);
   }
   return 0;
 }
@@ -90,7 +118,8 @@ static void push_column(lua_State *L, sqlite3_stmt *statement, int column) {
       lua_pushnumber(L, sqlite3_column_double(statement, column));
       break;
     case SQLITE_TEXT:
-      lua_pushstring(L, (const char *)sqlite3_column_text(statement, column));
+      lua_pushlstring(L, (const char *)sqlite3_column_text(statement, column),
+        (size_t)sqlite3_column_bytes(statement, column));
       break;
     case SQLITE_BLOB:
       lua_pushlstring(L, (const char *)sqlite3_column_blob(statement, column),
@@ -108,17 +137,21 @@ static int database_execute(lua_State *L) {
   sqlite3_stmt *statement = NULL;
   int result = sqlite3_prepare_v2(database->handle, sql, -1, &statement, NULL);
   if (result != SQLITE_OK)
-    return database_error(L, database->handle, result);
+    return push_database_error(L, database->handle, result, NULL);
 
-  bind_parameters(L, statement, 3);
+  result = bind_parameters(L, statement, 3);
+  if (result != 0) {
+    sqlite3_finalize(statement);
+    return result;
+  }
   while ((result = sqlite3_step(statement)) == SQLITE_ROW) {}
   if (result != SQLITE_DONE) {
     sqlite3_finalize(statement);
-    return database_error(L, database->handle, result);
+    return push_database_error(L, database->handle, result, NULL);
   }
   result = sqlite3_finalize(statement);
   if (result != SQLITE_OK)
-    return database_error(L, database->handle, result);
+    return push_database_error(L, database->handle, result, NULL);
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -129,9 +162,13 @@ static int database_query(lua_State *L) {
   sqlite3_stmt *statement = NULL;
   int result = sqlite3_prepare_v2(database->handle, sql, -1, &statement, NULL);
   if (result != SQLITE_OK)
-    return database_error(L, database->handle, result);
+    return push_database_error(L, database->handle, result, NULL);
 
-  bind_parameters(L, statement, 3);
+  result = bind_parameters(L, statement, 3);
+  if (result != 0) {
+    sqlite3_finalize(statement);
+    return result;
+  }
   lua_newtable(L);
   int row = 1;
   while ((result = sqlite3_step(statement)) == SQLITE_ROW) {
@@ -145,11 +182,16 @@ static int database_query(lua_State *L) {
   }
   if (result != SQLITE_DONE) {
     sqlite3_finalize(statement);
-    return database_error(L, database->handle, result);
+    push_database_error(L, database->handle, result, NULL);
+    lua_remove(L, -3);
+    return 2;
   }
   result = sqlite3_finalize(statement);
-  if (result != SQLITE_OK)
-    return database_error(L, database->handle, result);
+  if (result != SQLITE_OK) {
+    push_database_error(L, database->handle, result, NULL);
+    lua_remove(L, -3);
+    return 2;
+  }
   return 1;
 }
 
@@ -165,15 +207,57 @@ static int database_last_insert_rowid(lua_State *L) {
   return 1;
 }
 
+static int database_sql(lua_State *L, const char *sql) {
+  sqlite_database_t *database = check_database(L, 1);
+  char *error_message = NULL;
+  int result = execute_sql(database->handle, sql, &error_message);
+  if (result != SQLITE_OK) {
+    int returns = push_database_error(L, database->handle, result, error_message);
+    sqlite3_free(error_message);
+    return returns;
+  }
+  sqlite3_free(error_message);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+static int database_begin(lua_State *L) {
+  const char *mode = luaL_optstring(L, 2, "immediate");
+  const char *sql;
+  if (strcmp(mode, "deferred") == 0) sql = "BEGIN DEFERRED";
+  else if (strcmp(mode, "immediate") == 0) sql = "BEGIN IMMEDIATE";
+  else if (strcmp(mode, "exclusive") == 0) sql = "BEGIN EXCLUSIVE";
+  else return luaL_error(L, "SQLite transaction mode must be deferred, immediate, or exclusive");
+  return database_sql(L, sql);
+}
+
+static int database_commit(lua_State *L) {
+  return database_sql(L, "COMMIT");
+}
+
+static int database_rollback(lua_State *L) {
+  return database_sql(L, "ROLLBACK");
+}
+
+static int database_in_transaction(lua_State *L) {
+  sqlite_database_t *database = check_database(L, 1);
+  lua_pushboolean(L, !sqlite3_get_autocommit(database->handle));
+  return 1;
+}
+
 static int database_close(lua_State *L) {
   sqlite_database_t *database = luaL_checkudata(L, 1, API_TYPE_SQLITE);
   if (database->handle) {
     int result = sqlite3_close(database->handle);
-    if (result != SQLITE_OK)
-      return database_error(L, database->handle, result);
+    if (result != SQLITE_OK) {
+      int returns = push_database_error(L, database->handle, result, NULL);
+      lua_remove(L, -3);
+      return returns;
+    }
     database->handle = NULL;
   }
-  return 0;
+  lua_pushboolean(L, 1);
+  return 1;
 }
 
 static int database_gc(lua_State *L) {
@@ -188,6 +272,20 @@ static int database_gc(lua_State *L) {
 static int database_tostring(lua_State *L) {
   sqlite_database_t *database = luaL_checkudata(L, 1, API_TYPE_SQLITE);
   lua_pushfstring(L, "SQLiteDatabase(%s)", database->handle ? "open" : "closed");
+  return 1;
+}
+
+static int sqlite_blob(lua_State *L) {
+  size_t length;
+  const char *value = luaL_checklstring(L, 1, &length);
+  if (length > (size_t)INT_MAX)
+    return luaL_error(L, "SQLite blobs cannot exceed %d bytes", INT_MAX);
+  sqlite_blob_t *blob = lua_newuserdata(L, sizeof(*blob) + length);
+  blob->length = length;
+  if (length > 0)
+    memcpy(blob->data, value, length);
+  luaL_getmetatable(L, API_TYPE_SQLITE_BLOB);
+  lua_setmetatable(L, -2);
   return 1;
 }
 
@@ -208,17 +306,20 @@ static int sqlite_open(lua_State *L) {
   database->handle = NULL;
   int result = sqlite3_open_v2(path, &database->handle, flags, NULL);
   if (result != SQLITE_OK) {
-    const char *message = database->handle ? sqlite3_errmsg(database->handle) : "unable to open database";
-    lua_pushfstring(L, "SQLite open error (%d): %s", result, message);
+    int returns = push_database_error(L, database->handle, result, NULL);
     if (database->handle)
       sqlite3_close(database->handle);
     database->handle = NULL;
-    return lua_error(L);
+    lua_remove(L, -3);
+    return returns;
   }
   result = sqlite3_busy_timeout(database->handle, 5000);
   if (result != SQLITE_OK) {
-    database_error(L, database->handle, result);
-    return 0;
+    int returns = push_database_error(L, database->handle, result, NULL);
+    sqlite3_close(database->handle);
+    database->handle = NULL;
+    lua_remove(L, -3);
+    return returns;
   }
 
   const char *pragmas[] = {
@@ -232,13 +333,12 @@ static int sqlite_open(lua_State *L) {
     char *error_message = NULL;
     result = execute_sql(database->handle, pragmas[index], &error_message);
     if (result != SQLITE_OK) {
-      const char *message = error_message
-        ? error_message : sqlite3_errmsg(database->handle);
-      lua_pushfstring(L, "SQLite configuration error (%d): %s", result, message);
+      int returns = push_database_error(L, database->handle, result, error_message);
       sqlite3_free(error_message);
       sqlite3_close(database->handle);
       database->handle = NULL;
-      return lua_error(L);
+      lua_remove(L, -3);
+      return returns;
     }
     sqlite3_free(error_message);
   }
@@ -250,6 +350,10 @@ static int sqlite_open(lua_State *L) {
 static const luaL_Reg database_methods[] = {
   { "execute", database_execute },
   { "query", database_query },
+  { "begin", database_begin },
+  { "commit", database_commit },
+  { "rollback", database_rollback },
+  { "in_transaction", database_in_transaction },
   { "changes", database_changes },
   { "last_insert_rowid", database_last_insert_rowid },
   { "close", database_close },
@@ -260,6 +364,7 @@ static const luaL_Reg database_methods[] = {
 
 static const luaL_Reg sqlite_functions[] = {
   { "open", sqlite_open },
+  { "blob", sqlite_blob },
   { NULL, NULL }
 };
 
@@ -268,6 +373,9 @@ int luaopen_sqlite(lua_State *L) {
   luaL_setfuncs(L, database_methods, 0);
   lua_pushvalue(L, -1);
   lua_setfield(L, -2, "__index");
+  lua_pop(L, 1);
+
+  luaL_newmetatable(L, API_TYPE_SQLITE_BLOB);
   lua_pop(L, 1);
 
   luaL_newlib(L, sqlite_functions);
