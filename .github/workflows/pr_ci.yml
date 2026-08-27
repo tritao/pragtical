@@ -206,6 +206,7 @@ jobs:
           SDL_VIDEO_DRIVER=dummy ./scripts/run-local "$(get_default_build_dir)" test scripts/lua/tests
       - name: Run Terminal Native Tests
         run: |
+          source scripts/common.sh
           meson test -C "$(get_default_build_dir)" terminal-native-components --print-errorlogs
       - name: Run Workbench Windows Tests
         shell: pwsh
