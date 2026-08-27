@@ -5,6 +5,7 @@ $buildDirectory = Join-Path $root "build-windows-x86_64"
 $binary = Join-Path $buildDirectory "src\pragtical.exe"
 $agent = Join-Path $buildDirectory "src\workbench-agent.exe"
 $dataRoot = Join-Path $root "data"
+$workbenchTestTimeoutMilliseconds = 120000
 
 # The MSYS2 build is statically linked where possible, but the MinGW runtime
 # and any remaining shared dependencies are installed in the MSYS2 tree. The
@@ -40,7 +41,12 @@ function Invoke-WorkbenchTest {
 
   Write-Host "Running Workbench test: $TestFile"
   $process = Start-Process -FilePath $binary -ArgumentList @("test", $TestFile) `
-    -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    -WorkingDirectory $root -PassThru -NoNewWindow
+  if (-not $process.WaitForExit($workbenchTestTimeoutMilliseconds)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    $process.WaitForExit()
+    throw "Workbench test timed out after $($workbenchTestTimeoutMilliseconds / 1000)s: $TestFile"
+  }
   if ($process.ExitCode -ne 0) {
     throw "Workbench test failed: $TestFile (exit code $($process.ExitCode))"
   }
@@ -121,7 +127,11 @@ function Test-WorkbenchAgentLock {
     $secondary = Start-Process -FilePath $agent -ArgumentList $arguments `
       -WorkingDirectory $root -PassThru -RedirectStandardOutput $secondaryStdout `
       -RedirectStandardError $secondaryStderr
-    $secondary.WaitForExit()
+    if (-not $secondary.WaitForExit(10000)) {
+      Stop-Process -Id $secondary.Id -Force -ErrorAction SilentlyContinue
+      $secondary.WaitForExit()
+      throw "Second Workbench agent did not exit after 10s"
+    }
     $log = if (Test-Path $secondaryStderr) { Get-Content $secondaryStderr -Raw } else { "" }
     if ($secondary.ExitCode -ne 3 -or -not $log.Contains("workspace_in_use:")) {
       throw "Second Workbench agent was not rejected by the ownership lock: $log"
