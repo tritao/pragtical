@@ -44,10 +44,20 @@ typedef struct {
   int fd;
 #endif
   int closed;
+  unsigned char read_header[sizeof(uint32_t)];
+  size_t read_header_offset;
+  unsigned char *read_buffer;
+  size_t read_length;
+  size_t read_offset;
+  int read_frame_active;
   unsigned char *write_buffer;
   size_t write_length;
   size_t write_offset;
 #ifdef _WIN32
+  HANDLE read_event;
+  OVERLAPPED read_overlapped;
+  int read_pending;
+  size_t *read_pending_offset;
   HANDLE write_event;
   OVERLAPPED write_overlapped;
   int write_pending;
@@ -87,24 +97,27 @@ static int wait_for_fd(int fd, short events, int timeout_ms) {
     result = poll(&descriptor, 1, timeout_ms);
   } while (result < 0 && errno == EINTR);
   if (result <= 0) return result;
-  if (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
-  return 1;
+  if (descriptor.revents & POLLNVAL) return -1;
+  if (descriptor.revents & POLLERR) return -1;
+  if (descriptor.revents & events) return 1;
+  if (descriptor.revents & POLLHUP) return -1;
+  return 0;
 }
 
-static int read_all(int fd, void *buffer, size_t length, int timeout_ms) {
-  char *cursor = buffer;
-  while (length > 0) {
+static int read_incremental(int fd, void *buffer, size_t length,
+    size_t *offset, int timeout_ms) {
+  while (*offset < length) {
     int ready = wait_for_fd(fd, POLLIN, timeout_ms);
     if (ready <= 0) return ready;
-    ssize_t count = read(fd, cursor, length);
+    ssize_t count = read(fd, (char *)buffer + *offset, length - *offset);
     if (count == 0) return -1;
     if (count < 0) {
       if (errno == EINTR) continue;
-      if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return 0;
       return -1;
     }
-    cursor += count;
-    length -= (size_t)count;
+    *offset += (size_t)count;
   }
   return 1;
 }
@@ -129,6 +142,15 @@ static void clear_write_buffer(workbench_connection *connection) {
   connection->write_buffer = NULL;
   connection->write_length = 0;
   connection->write_offset = 0;
+}
+
+static void clear_read_state(workbench_connection *connection) {
+  free(connection->read_buffer);
+  connection->read_buffer = NULL;
+  connection->read_header_offset = 0;
+  connection->read_length = 0;
+  connection->read_offset = 0;
+  connection->read_frame_active = 0;
 }
 
 /* Drain at most what the kernel accepts right now. The agent's event loop
@@ -170,6 +192,7 @@ static int connection_gc(lua_State *L) {
     connection->closed = 1;
   }
   clear_write_buffer(connection);
+  clear_read_state(connection);
   return 0;
 }
 
@@ -202,6 +225,7 @@ static int connection_close(lua_State *L) {
     connection->closed = 1;
   }
   clear_write_buffer(connection);
+  clear_read_state(connection);
   return 0;
 }
 
@@ -301,8 +325,50 @@ static int connection_flush(lua_State *L) {
 static int connection_receive(lua_State *L) {
   workbench_connection *connection = check_connection(L);
   int timeout_ms = (int)luaL_optinteger(L, 2, -1);
-  uint32_t network_length;
-  int result = read_all(connection->fd, &network_length, sizeof(network_length), timeout_ms);
+  int result;
+  if (!connection->read_frame_active) {
+    result = read_incremental(connection->fd, connection->read_header,
+      sizeof(connection->read_header), &connection->read_header_offset,
+      timeout_ms);
+    if (result == 0) {
+      lua_pushnil(L);
+      lua_pushliteral(L, "timeout");
+      return 2;
+    }
+    if (result < 0) {
+      connection->closed = 1;
+      close_fd(&connection->fd);
+      clear_write_buffer(connection);
+      clear_read_state(connection);
+      lua_pushnil(L);
+      lua_pushliteral(L, "closed");
+      return 2;
+    }
+
+    uint32_t network_length;
+    memcpy(&network_length, connection->read_header, sizeof(network_length));
+    uint32_t length = ((network_length >> 24) & 0x000000ffu)
+      | ((network_length >> 8) & 0x0000ff00u)
+      | ((network_length << 8) & 0x00ff0000u)
+      | (network_length << 24);
+    if (length > WORKBENCH_MAX_FRAME) {
+      clear_read_state(connection);
+      return luaL_error(L, "Workbench frame is too large");
+    }
+    connection->read_length = length;
+    connection->read_offset = 0;
+    connection->read_frame_active = 1;
+    if (length > 0) {
+      connection->read_buffer = malloc(length);
+      if (!connection->read_buffer) {
+        clear_read_state(connection);
+        return luaL_error(L, "out of memory reading Workbench frame");
+      }
+    }
+  }
+
+  result = read_incremental(connection->fd, connection->read_buffer,
+    connection->read_length, &connection->read_offset, timeout_ms);
   if (result == 0) {
     lua_pushnil(L);
     lua_pushliteral(L, "timeout");
@@ -312,29 +378,14 @@ static int connection_receive(lua_State *L) {
     connection->closed = 1;
     close_fd(&connection->fd);
     clear_write_buffer(connection);
+    clear_read_state(connection);
     lua_pushnil(L);
     lua_pushliteral(L, "closed");
     return 2;
   }
-  uint32_t length = ((network_length >> 24) & 0x000000ffu)
-    | ((network_length >> 8) & 0x0000ff00u)
-    | ((network_length << 8) & 0x00ff0000u)
-    | (network_length << 24);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
-  char *data = malloc(length ? length : 1);
-  if (!data) return luaL_error(L, "out of memory reading Workbench frame");
-  result = read_all(connection->fd, data, length, timeout_ms);
-  if (result <= 0) {
-    free(data);
-    connection->closed = 1;
-    close_fd(&connection->fd);
-    clear_write_buffer(connection);
-    lua_pushnil(L);
-    lua_pushliteral(L, "closed");
-    return 2;
-  }
-  lua_pushlstring(L, data, length);
-  free(data);
+  lua_pushlstring(L, connection->read_buffer
+    ? (const char *)connection->read_buffer : "", connection->read_length);
+  clear_read_state(connection);
   return 1;
 }
 
@@ -558,34 +609,93 @@ static int pipe_wait_data(HANDLE handle, int timeout_ms, DWORD *available) {
   }
 }
 
-static int read_pipe(HANDLE handle, void *buffer, size_t length, int timeout_ms) {
-  char *cursor = buffer;
-  while (length > 0) {
+static int finish_pending_read(workbench_connection *connection, int timeout_ms) {
+  if (!connection->read_pending) return 1;
+  DWORD wait = WaitForSingleObject(connection->read_event,
+    timeout_ms < 0 ? INFINITE : (DWORD)timeout_ms);
+  if (wait == WAIT_TIMEOUT) return 0;
+  if (wait != WAIT_OBJECT_0) return -1;
+
+  DWORD count = 0;
+  if (!GetOverlappedResult(connection->handle, &connection->read_overlapped,
+      &count, FALSE))
+    return -1;
+  connection->read_pending = 0;
+  if (connection->read_event) {
+    CloseHandle(connection->read_event);
+    connection->read_event = NULL;
+  }
+  size_t *offset = connection->read_pending_offset;
+  connection->read_pending_offset = NULL;
+  if (count == 0 || !offset) return -1;
+  *offset += count;
+  return 1;
+}
+
+static int read_pipe(workbench_connection *connection, void *buffer,
+    size_t length, size_t *offset, int timeout_ms) {
+  int result = finish_pending_read(connection, timeout_ms);
+  if (result <= 0) return result;
+
+  while (*offset < length) {
     DWORD available = 0;
-    int ready = pipe_wait_data(handle, timeout_ms, &available);
+    int ready = pipe_wait_data(connection->handle, timeout_ms, &available);
     if (ready <= 0) return ready;
-    DWORD requested = (DWORD)(length > UINT32_MAX ? UINT32_MAX : length);
+    size_t remaining = length - *offset;
+    DWORD requested = (DWORD)(remaining > UINT32_MAX ? UINT32_MAX : remaining);
     if (available < requested) requested = available;
-    OVERLAPPED overlapped = {0};
-    overlapped.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
-    if (!overlapped.hEvent) return -1;
-    DWORD count = 0;
-    BOOL read = ReadFile(handle, cursor, requested, &count, &overlapped);
-    if (!read && GetLastError() == ERROR_IO_PENDING) {
-      if (WaitForSingleObject(overlapped.hEvent, INFINITE) != WAIT_OBJECT_0
-          || !GetOverlappedResult(handle, &overlapped, &count, FALSE)) {
-        CloseHandle(overlapped.hEvent);
-        return -1;
-      }
-      read = TRUE;
+    if (requested == 0) return 0;
+
+    if (!connection->read_event) {
+      connection->read_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+      if (!connection->read_event) return -1;
     }
-    CloseHandle(overlapped.hEvent);
-    if (!read) return -1;
-    if (count == 0) return -1;
-    cursor += count;
-    length -= count;
+    ResetEvent(connection->read_event);
+    memset(&connection->read_overlapped, 0,
+      sizeof(connection->read_overlapped));
+    connection->read_overlapped.hEvent = connection->read_event;
+    connection->read_pending = 1;
+    connection->read_pending_offset = offset;
+    BOOL read = ReadFile(connection->handle,
+      (char *)buffer + *offset, requested, NULL,
+      &connection->read_overlapped);
+    if (read) {
+      result = finish_pending_read(connection, 0);
+      if (result <= 0) return result;
+      continue;
+    }
+    DWORD error = GetLastError();
+    if (error != ERROR_IO_PENDING) {
+      connection->read_pending = 0;
+      connection->read_pending_offset = NULL;
+      if (connection->read_event) {
+        CloseHandle(connection->read_event);
+        connection->read_event = NULL;
+      }
+      return -1;
+    }
+    result = finish_pending_read(connection, timeout_ms);
+    if (result <= 0) return result;
   }
   return 1;
+}
+
+static void clear_read_state(workbench_connection *connection) {
+  if (connection->read_pending) {
+    CancelIoEx(connection->handle, &connection->read_overlapped);
+    connection->read_pending = 0;
+    connection->read_pending_offset = NULL;
+  }
+  if (connection->read_event) {
+    CloseHandle(connection->read_event);
+    connection->read_event = NULL;
+  }
+  free(connection->read_buffer);
+  connection->read_buffer = NULL;
+  connection->read_header_offset = 0;
+  connection->read_length = 0;
+  connection->read_offset = 0;
+  connection->read_frame_active = 0;
 }
 
 static int write_pipe(HANDLE handle, const void *buffer, size_t length) {
@@ -681,10 +791,14 @@ static int connection_gc(lua_State *L) {
   workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
   if (!connection->closed) {
     clear_write_buffer(connection);
+    clear_read_state(connection);
     CloseHandle(connection->handle);
     connection->handle = INVALID_HANDLE_VALUE;
     connection->closed = 1;
-  } else clear_write_buffer(connection);
+  } else {
+    clear_write_buffer(connection);
+    clear_read_state(connection);
+  }
   return 0;
 }
 
@@ -714,10 +828,14 @@ static int connection_close(lua_State *L) {
   workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
   if (!connection->closed) {
     clear_write_buffer(connection);
+    clear_read_state(connection);
     CloseHandle(connection->handle);
     connection->handle = INVALID_HANDLE_VALUE;
     connection->closed = 1;
-  } else clear_write_buffer(connection);
+  } else {
+    clear_write_buffer(connection);
+    clear_read_state(connection);
+  }
   return 0;
 }
 
@@ -823,9 +941,51 @@ static int connection_flush(lua_State *L) {
 static int connection_receive(lua_State *L) {
   workbench_connection *connection = check_connection(L);
   int timeout_ms = (int)luaL_optinteger(L, 2, -1);
-  uint32_t network_length;
-  int result = read_pipe(connection->handle, &network_length,
-    sizeof(network_length), timeout_ms);
+  int result;
+  if (!connection->read_frame_active) {
+    result = read_pipe(connection, connection->read_header,
+      sizeof(connection->read_header), &connection->read_header_offset,
+      timeout_ms);
+    if (result == 0) {
+      lua_pushnil(L);
+      lua_pushliteral(L, "timeout");
+      return 2;
+    }
+    if (result < 0) {
+      connection->closed = 1;
+      clear_write_buffer(connection);
+      clear_read_state(connection);
+      CloseHandle(connection->handle);
+      connection->handle = INVALID_HANDLE_VALUE;
+      lua_pushnil(L);
+      lua_pushliteral(L, "closed");
+      return 2;
+    }
+
+    uint32_t network_length;
+    memcpy(&network_length, connection->read_header, sizeof(network_length));
+    uint32_t length = ((network_length >> 24) & 0x000000ffu)
+      | ((network_length >> 8) & 0x0000ff00u)
+      | ((network_length << 8) & 0x00ff0000u)
+      | (network_length << 24);
+    if (length > WORKBENCH_MAX_FRAME) {
+      clear_read_state(connection);
+      return luaL_error(L, "Workbench frame is too large");
+    }
+    connection->read_length = length;
+    connection->read_offset = 0;
+    connection->read_frame_active = 1;
+    if (length > 0) {
+      connection->read_buffer = malloc(length);
+      if (!connection->read_buffer) {
+        clear_read_state(connection);
+        return luaL_error(L, "out of memory reading Workbench frame");
+      }
+    }
+  }
+
+  result = read_pipe(connection, connection->read_buffer,
+    connection->read_length, &connection->read_offset, timeout_ms);
   if (result == 0) {
     lua_pushnil(L);
     lua_pushliteral(L, "timeout");
@@ -834,32 +994,16 @@ static int connection_receive(lua_State *L) {
   if (result < 0) {
     connection->closed = 1;
     clear_write_buffer(connection);
+    clear_read_state(connection);
     CloseHandle(connection->handle);
     connection->handle = INVALID_HANDLE_VALUE;
     lua_pushnil(L);
     lua_pushliteral(L, "closed");
     return 2;
   }
-  uint32_t length = ((network_length >> 24) & 0x000000ffu)
-    | ((network_length >> 8) & 0x0000ff00u)
-    | ((network_length << 8) & 0x00ff0000u)
-    | (network_length << 24);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
-  char *data = malloc(length ? length : 1);
-  if (!data) return luaL_error(L, "out of memory reading Workbench frame");
-  result = read_pipe(connection->handle, data, length, timeout_ms);
-  if (result <= 0) {
-    free(data);
-    connection->closed = 1;
-    clear_write_buffer(connection);
-    CloseHandle(connection->handle);
-    connection->handle = INVALID_HANDLE_VALUE;
-    lua_pushnil(L);
-    lua_pushstring(L, result == 0 ? "timeout" : "closed");
-    return 2;
-  }
-  lua_pushlstring(L, data, length);
-  free(data);
+  lua_pushlstring(L, connection->read_buffer
+    ? (const char *)connection->read_buffer : "", connection->read_length);
+  clear_read_state(connection);
   return 1;
 }
 

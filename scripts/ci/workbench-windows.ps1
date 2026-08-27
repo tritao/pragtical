@@ -90,6 +90,78 @@ function Stop-WorkbenchAgent {
   }
 }
 
+function Test-FragmentedWorkbenchTransport {
+  param(
+    [Parameter(Mandatory = $true)][string]$Endpoint,
+    [Parameter(Mandatory = $true)][string]$Workspace
+  )
+
+  # The native transport hashes non-prefixed endpoint names with FNV-1a.
+  [uint32]$hash = 2166136261
+  foreach ($byte in [System.Text.Encoding]::UTF8.GetBytes($Endpoint)) {
+    $hash = [uint32]($hash -bxor [uint32]$byte)
+    $hash = [uint32]($hash * 16777619)
+  }
+  $pipeName = "\\.\pipe\pragtical-workbench-{0:x8}" -f $hash
+  $pipe = [System.IO.Pipes.NamedPipeClientStream]::new(
+    ".", $pipeName.Substring(9),
+    [System.IO.Pipes.PipeDirection]::InOut,
+    [System.IO.Pipes.PipeOptions]::None)
+  try {
+    $pipe.Connect(5000)
+    $payload = [System.Collections.Generic.List[byte]]::new()
+    $addString = {
+      param([string]$Value)
+      $encoded = [System.Text.Encoding]::UTF8.GetBytes($Value)
+      if ($encoded.Length -ge 32) { throw "fragmentation test string is too long" }
+      $payload.Add([byte](0xa0 -bor $encoded.Length))
+      foreach ($item in $encoded) { $payload.Add($item) }
+    }
+    $payload.Add([byte]0x84)
+    & $addString "protocol"
+    $payload.Add([byte]2)
+    & $addString "kind"
+    & $addString "hello"
+    & $addString "request_id"
+    & $addString "fragment-test"
+    & $addString "workspace_id"
+    & $addString $Workspace
+
+    $length = [BitConverter]::GetBytes([uint32]$payload.Count)
+    if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($length) }
+    $frame = [byte[]]($length + $payload.ToArray())
+    foreach ($item in $frame) {
+      $pipe.WriteByte($item)
+      $pipe.Flush()
+      Start-Sleep -Milliseconds 1
+    }
+
+    $header = New-Object byte[] 4
+    $read = 0
+    while ($read -lt $header.Length) {
+      $count = $pipe.Read($header, $read, $header.Length - $read)
+      if ($count -le 0) { throw "agent closed the transport while replying" }
+      $read += $count
+    }
+    if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($header) }
+    $responseLength = [BitConverter]::ToUInt32($header, 0)
+    if ($responseLength -gt 16MB) { throw "agent returned an oversized response frame" }
+    $response = New-Object byte[] $responseLength
+    $read = 0
+    while ($read -lt $response.Length) {
+      $count = $pipe.Read($response, $read, $response.Length - $read)
+      if ($count -le 0) { throw "agent closed the transport while replying" }
+      $read += $count
+    }
+    $text = [System.Text.Encoding]::UTF8.GetString($response)
+    if (-not $text.Contains("hello_result")) {
+      throw "fragmented hello did not receive hello_result"
+    }
+  } finally {
+    $pipe.Dispose()
+  }
+}
+
 function Invoke-AgentTest {
   param(
     [Parameter(Mandatory = $true)][string]$Workspace,
@@ -98,6 +170,7 @@ function Invoke-AgentTest {
   )
 
   $instance = Start-WorkbenchAgent $Workspace $StateDirectory
+  Test-FragmentedWorkbenchTransport $instance.Endpoint $Workspace
   $previousEndpoint = $env:WORKBENCH_AGENT_ENDPOINT
   $env:WORKBENCH_AGENT_ENDPOINT = $instance.Endpoint
   try {

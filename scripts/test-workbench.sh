@@ -117,6 +117,8 @@ agent_state="$state_root/agent"
 agent_endpoint="$agent_state/workbench.sock"
 echo "Running Workbench agent persistence tests"
 start_agent "agent-test" "$agent_state" "$agent_endpoint"
+echo "Running fragmented Unix Workbench transport test"
+python3 "$script_dir/test-workbench-transport.py" "$agent_endpoint" "agent-test"
 run_test data/plugins/workbench/tests/agent.lua "$agent_endpoint"
 stop_agent
 

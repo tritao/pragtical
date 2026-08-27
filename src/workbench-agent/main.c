@@ -6,6 +6,7 @@
 #include <string.h>
 
 #ifndef _WIN32
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -24,6 +25,7 @@
 int luaopen_sqlite(lua_State *L);
 int luaopen_workbench_transport(lua_State *L);
 int luaopen_workbench_runtime(lua_State *L);
+int luaopen_workbench_emulator(lua_State *L);
 
 typedef struct {
   const char *data_root;
@@ -193,11 +195,59 @@ static int system_absolute_path(lua_State *L) {
   return 1;
 }
 
+static int system_list_dir(lua_State *L) {
+  const char *path = luaL_checkstring(L, 1);
+#ifndef _WIN32
+  DIR *directory = opendir(path);
+  if (!directory) {
+    lua_pushnil(L);
+    lua_pushstring(L, strerror(errno));
+    return 2;
+  }
+  lua_newtable(L);
+  lua_Integer index = 1;
+  struct dirent *entry;
+  while ((entry = readdir(directory)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+      continue;
+    lua_pushstring(L, entry->d_name);
+    lua_rawseti(L, -2, index++);
+  }
+  closedir(directory);
+  return 1;
+#else
+  size_t length = strlen(path) + 4;
+  char *pattern = malloc(length);
+  if (!pattern) return luaL_error(L, "out of memory listing Workbench files");
+  snprintf(pattern, length, "%s\\*", path);
+  WIN32_FIND_DATAA data;
+  HANDLE search = FindFirstFileA(pattern, &data);
+  free(pattern);
+  if (search == INVALID_HANDLE_VALUE) {
+    lua_pushnil(L);
+    lua_pushfstring(L, "Windows directory error: %lu",
+      (unsigned long)GetLastError());
+    return 2;
+  }
+  lua_newtable(L);
+  lua_Integer index = 1;
+  do {
+    if (strcmp(data.cFileName, ".") != 0 && strcmp(data.cFileName, "..") != 0) {
+      lua_pushstring(L, data.cFileName);
+      lua_rawseti(L, -2, index++);
+    }
+  } while (FindNextFileA(search, &data));
+  FindClose(search);
+  return 1;
+#endif
+}
+
 static void install_system_stub(lua_State *L) {
   static const luaL_Reg functions[] = {
     { "get_file_info", system_get_file_info },
     { "mkdir", system_mkdir },
     { "absolute_path", system_absolute_path },
+    { "list_dir", system_list_dir },
     { NULL, NULL },
   };
   luaL_newlib(L, functions);
@@ -376,6 +426,7 @@ int main(int argc, char **argv) {
   register_module(L, "sqlite", luaopen_sqlite);
   register_module(L, "workbench_transport", luaopen_workbench_transport);
   register_module(L, "workbench_runtime", luaopen_workbench_runtime);
+  register_module(L, "workbench_emulator", luaopen_workbench_emulator);
   int result = run_agent(L, &options) ? 0 : 1;
   lua_close(L);
   release_workbench_lock(&lock);
