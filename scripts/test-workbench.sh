@@ -105,6 +105,7 @@ for test_file in \
   data/plugins/workbench/tests/client.lua \
   data/plugins/workbench/tests/persistence.lua \
   data/plugins/workbench/tests/protocol.lua \
+  data/plugins/workbench/tests/provider.lua \
   data/plugins/workbench/tests/sakura_import.lua \
   data/plugins/workbench/tests/service.lua \
   data/plugins/workbench/tests/terminal.lua \
