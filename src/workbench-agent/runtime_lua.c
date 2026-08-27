@@ -9,6 +9,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 #define WORKBENCH_RUNTIME "WorkbenchRuntime"
@@ -179,6 +181,57 @@ static int runtime_gc(lua_State *L) {
   return 0;
 }
 
+static int runtime_available(lua_State *L) {
+  const char *command = luaL_checkstring(L, 1);
+#ifdef _WIN32
+  char path[32768];
+  DWORD length = SearchPathA(NULL, command, NULL, sizeof(path), path, NULL);
+  if (length > 0 && length < sizeof(path)) {
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+#else
+  if (strchr(command, '/')) {
+    if (access(command, X_OK) == 0) {
+      lua_pushboolean(L, 1);
+      return 1;
+    }
+  } else {
+    const char *path = getenv("PATH");
+    if (!path) path = "/usr/local/bin:/usr/bin:/bin";
+    const char *cursor = path;
+    size_t command_length = strlen(command);
+    while (1) {
+      const char *separator = strchr(cursor, ':');
+      size_t directory_length = separator
+        ? (size_t)(separator - cursor) : strlen(cursor);
+      size_t candidate_length = directory_length
+        + (directory_length ? 1 : 0) + command_length;
+      char *candidate = malloc(candidate_length + 1);
+      if (!candidate) return luaL_error(L, "failed to allocate executable path");
+      if (directory_length) {
+        memcpy(candidate, cursor, directory_length);
+        candidate[directory_length] = '/';
+      }
+      memcpy(candidate + directory_length + (directory_length ? 1 : 0),
+        command, command_length);
+      candidate[candidate_length] = '\0';
+      int available = access(candidate, X_OK) == 0;
+      free(candidate);
+      if (available) {
+        lua_pushboolean(L, 1);
+        return 1;
+      }
+      if (!separator) break;
+      cursor = separator + 1;
+    }
+  }
+#endif
+  lua_pushboolean(L, 0);
+  lua_pushfstring(L, "executable is not available: %s", command);
+  return 2;
+}
+
 static int runtime_new(lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_getfield(L, 1, "command");
@@ -317,6 +370,7 @@ int luaopen_workbench_runtime(lua_State *L) {
   lua_pop(L, 1);
   static const luaL_Reg functions[] = {
     { "new", runtime_new },
+    { "available", runtime_available },
     { NULL, NULL },
   };
   luaL_newlib(L, functions);

@@ -144,6 +144,21 @@ run_test() {
   copied_runtime=true
 }
 
+run_agent_provider_test() {
+  local endpoint="$1"
+  local executable="$2"
+  local -a command=("$script_dir/run-local")
+
+  if [[ "$copied_runtime" == true ]]; then
+    command+=("-keep")
+  fi
+  command+=("$build_dir" "test" "data/plugins/workbench/tests/agent_provider.lua")
+  WORKBENCH_AGENT_ENDPOINT="$endpoint" \
+    WORKBENCH_CODEX_EXECUTABLE="$executable" \
+    SDL_VIDEO_DRIVER=dummy "${command[@]}"
+  copied_runtime=true
+}
+
 run_fault_test() {
   local endpoint="$1"
   local phase="$2"
@@ -210,6 +225,18 @@ run_test data/plugins/workbench/tests/agent.lua "$agent_endpoint"
 stop_agent
 
 run_agent_lock_test
+
+codex_executable="$(type -P codex || true)"
+if [[ -n "$codex_executable" ]]; then
+  provider_state="$state_root/agent-provider"
+  provider_endpoint="$provider_state/workbench.sock"
+  echo "Running Workbench live Codex provider test"
+  start_agent "agent-codex-test" "$provider_state" "$provider_endpoint"
+  run_agent_provider_test "$provider_endpoint" "$codex_executable"
+  stop_agent
+else
+  echo "Skipping live Codex provider test: codex executable was not found"
+fi
 
 start_agent "agent-test" "$agent_state" "$agent_endpoint"
 run_test data/plugins/workbench/tests/agent_reconnect.lua "$agent_endpoint"

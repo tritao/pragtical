@@ -338,6 +338,33 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
       }
     }
 
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+    if ($null -ne $codexCommand) {
+      $providerState = Join-Path $env:RUNNER_TEMP `
+        "pragtical-workbench-agent-provider-$env:GITHUB_RUN_ID"
+      if (Test-Path $providerState) {
+        Remove-Item -Recurse -Force $providerState
+      }
+      New-Item -ItemType Directory -Force -Path $providerState | Out-Null
+      $previousCodexExecutable = $env:WORKBENCH_CODEX_EXECUTABLE
+      try {
+        $env:WORKBENCH_CODEX_EXECUTABLE = $codexCommand.Source
+        Invoke-AgentTest "agent-codex-test" $providerState `
+          "data/plugins/workbench/tests/agent_provider.lua"
+      } finally {
+        if ($null -eq $previousCodexExecutable) {
+          Remove-Item Env:WORKBENCH_CODEX_EXECUTABLE -ErrorAction SilentlyContinue
+        } else {
+          $env:WORKBENCH_CODEX_EXECUTABLE = $previousCodexExecutable
+        }
+        if (Test-Path $providerState) {
+          Remove-Item -Recurse -Force $providerState
+        }
+      }
+    } else {
+      Write-Host "Skipping live Codex provider test: codex executable was not found"
+    }
+
     Invoke-AgentTest "agent-test" $agentState "data/plugins/workbench/tests/agent_reconnect.lua"
 
   $terminalState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-terminal-$env:GITHUB_RUN_ID"
