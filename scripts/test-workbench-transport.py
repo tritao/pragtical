@@ -34,6 +34,46 @@ def read_exact(connection, length):
     return bytes(result)
 
 
+def read_frame(connection):
+    response_length = struct.unpack(">I", read_exact(connection, 4))[0]
+    if response_length > 16 * 1024 * 1024:
+        raise RuntimeError("agent returned an oversized response frame")
+    return read_exact(connection, response_length)
+
+
+def send_frame(connection, payload):
+    connection.sendall(struct.pack(">I", len(payload)) + payload)
+
+
+def exercise_rejection_paths(endpoint, workspace):
+    # A malformed MessagePack payload must be rejected at the client boundary
+    # without taking down the authoritative agent.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(endpoint)
+        send_frame(connection, b"\xc1")
+        response = read_frame(connection)
+        if b"invalid_protocol" not in response:
+            raise RuntimeError("malformed MessagePack did not receive invalid_protocol")
+
+    # A hostile frame length must only disconnect that client. The next hello
+    # proves the listening agent and its existing state survived the rejection.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(endpoint)
+        connection.sendall(struct.pack(">I", 16 * 1024 * 1024 + 1))
+        if connection.recv(1) != b"":
+            raise RuntimeError("oversized Workbench frame was not rejected")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(endpoint)
+        send_frame(connection, hello_message(workspace))
+        response = read_frame(connection)
+        if b"hello_result" not in response:
+            raise RuntimeError("agent did not survive malformed transport input")
+
+
 def main():
     if len(sys.argv) not in (2, 3):
         raise SystemExit(f"usage: {sys.argv[0]} ENDPOINT [WORKSPACE]")
@@ -51,12 +91,11 @@ def main():
             # exercises both persistent header and persistent payload offsets.
             time.sleep(0.001)
 
-        response_length = struct.unpack(">I", read_exact(connection, 4))[0]
-        if response_length > 16 * 1024 * 1024:
-            raise RuntimeError("agent returned an oversized response frame")
-        response = read_exact(connection, response_length)
+        response = read_frame(connection)
         if b"hello_result" not in response:
             raise RuntimeError("fragmented hello did not receive hello_result")
+
+    exercise_rejection_paths(endpoint, workspace)
 
 
 if __name__ == "__main__":

@@ -100,6 +100,40 @@ function Stop-WorkbenchAgent {
   }
 }
 
+function Test-WorkbenchAgentLock {
+  param(
+    [Parameter(Mandatory = $true)][string]$Workspace,
+    [Parameter(Mandatory = $true)][string]$StateDirectory
+  )
+
+  Write-Host "Running Workbench agent ownership-lock test"
+  $primary = Start-WorkbenchAgent $Workspace $StateDirectory
+  $secondaryEndpoint = "workbench-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$Workspace-secondary"
+  $secondaryStdout = Join-Path $StateDirectory "second.stdout.log"
+  $secondaryStderr = Join-Path $StateDirectory "second.stderr.log"
+  $arguments = @(
+    "--data-root", $dataRoot,
+    "--data-dir", $StateDirectory,
+    "--endpoint", $secondaryEndpoint,
+    "--workspace", "$Workspace-secondary"
+  )
+  try {
+    $secondary = Start-Process -FilePath $agent -ArgumentList $arguments `
+      -WorkingDirectory $root -PassThru -RedirectStandardOutput $secondaryStdout `
+      -RedirectStandardError $secondaryStderr
+    $secondary.WaitForExit()
+    $log = if (Test-Path $secondaryStderr) { Get-Content $secondaryStderr -Raw } else { "" }
+    if ($secondary.ExitCode -ne 3 -or -not $log.Contains("workspace_in_use:")) {
+      throw "Second Workbench agent was not rejected by the ownership lock: $log"
+    }
+    if ($primary.Process.HasExited) {
+      throw "Primary Workbench agent exited while the second agent was rejected"
+    }
+  } finally {
+    Stop-WorkbenchAgent $primary
+  }
+}
+
 function Test-FragmentedWorkbenchTransport {
   param(
     [Parameter(Mandatory = $true)][string]$Endpoint,
@@ -270,6 +304,8 @@ $workbenchTests = @(
   "data/plugins/workbench/tests/client.lua",
   "data/plugins/workbench/tests/persistence.lua",
   "data/plugins/workbench/tests/protocol.lua",
+  "data/plugins/workbench/tests/provider.lua",
+  "data/plugins/workbench/tests/provider_recovery.lua",
   "data/plugins/workbench/tests/sakura_import.lua",
   "data/plugins/workbench/tests/service.lua",
   "data/plugins/workbench/tests/terminal.lua",
@@ -286,9 +322,23 @@ if (Test-Path $agentState) {
 }
 New-Item -ItemType Directory -Force -Path $agentState | Out-Null
 
-try {
-  Invoke-AgentTest "agent-test" $agentState "data/plugins/workbench/tests/agent.lua"
-  Invoke-AgentTest "agent-test" $agentState "data/plugins/workbench/tests/agent_reconnect.lua"
+  try {
+    Invoke-AgentTest "agent-test" $agentState "data/plugins/workbench/tests/agent.lua"
+
+    $lockState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-lock-$env:GITHUB_RUN_ID"
+    if (Test-Path $lockState) {
+      Remove-Item -Recurse -Force $lockState
+    }
+    New-Item -ItemType Directory -Force -Path $lockState | Out-Null
+    try {
+      Test-WorkbenchAgentLock "agent-lock-test" $lockState
+    } finally {
+      if (Test-Path $lockState) {
+        Remove-Item -Recurse -Force $lockState
+      }
+    }
+
+    Invoke-AgentTest "agent-test" $agentState "data/plugins/workbench/tests/agent_reconnect.lua"
 
   $terminalState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-terminal-$env:GITHUB_RUN_ID"
   if (Test-Path $terminalState) {

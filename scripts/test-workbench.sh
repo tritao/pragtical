@@ -89,6 +89,42 @@ stop_agent() {
   agent_pid=""
 }
 
+run_agent_lock_test() {
+  local lock_state="$state_root/agent-lock"
+  local primary_endpoint="$lock_state/primary.sock"
+  local secondary_endpoint="$lock_state/secondary.sock"
+  local secondary_log="$lock_state/secondary.log"
+  local secondary_pid
+  local secondary_status
+
+  echo "Running Workbench agent ownership-lock test"
+  start_agent "agent-lock-test" "$lock_state" "$primary_endpoint"
+  "$agent" \
+    --data-root "$root_dir/data" \
+    --data-dir "$lock_state" \
+    --endpoint "$secondary_endpoint" \
+    --workspace "agent-lock-test" >"$secondary_log" 2>&1 &
+  secondary_pid=$!
+  if wait "$secondary_pid"; then
+    secondary_status=0
+  else
+    secondary_status=$?
+  fi
+  if [[ "$secondary_status" -ne 3 ]] \
+      || ! grep -q '^workspace_in_use:' "$secondary_log"; then
+    echo "Second Workbench agent was not rejected by the ownership lock:" >&2
+    sed -n '1,160p' "$secondary_log" >&2 || true
+    stop_agent
+    return 1
+  fi
+  if ! kill -0 "$agent_pid" 2>/dev/null; then
+    echo "Primary Workbench agent exited while the second agent was rejected" >&2
+    stop_agent
+    return 1
+  fi
+  stop_agent
+}
+
 run_test() {
   local test_file="$1"
   local endpoint="${2:-}"
@@ -156,6 +192,7 @@ for test_file in \
   data/plugins/workbench/tests/persistence.lua \
   data/plugins/workbench/tests/protocol.lua \
   data/plugins/workbench/tests/provider.lua \
+  data/plugins/workbench/tests/provider_recovery.lua \
   data/plugins/workbench/tests/sakura_import.lua \
   data/plugins/workbench/tests/service.lua \
   data/plugins/workbench/tests/terminal.lua \
@@ -171,6 +208,8 @@ echo "Running fragmented Unix Workbench transport test"
 python3 "$script_dir/test-workbench-transport.py" "$agent_endpoint" "agent-test"
 run_test data/plugins/workbench/tests/agent.lua "$agent_endpoint"
 stop_agent
+
+run_agent_lock_test
 
 start_agent "agent-test" "$agent_state" "$agent_endpoint"
 run_test data/plugins/workbench/tests/agent_reconnect.lua "$agent_endpoint"
