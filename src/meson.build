@@ -299,6 +299,7 @@ if sqlite_enabled
         include_directories: pragtical_includes,
         dependencies: workbench_agent_deps,
         c_args: pragtical_cargs,
+        link_args: pragtical_link_args,
         install_dir: pragtical_bindir,
         install: true,
     )
