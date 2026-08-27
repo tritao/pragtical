@@ -151,6 +151,7 @@ if host_machine.system() == 'windows'
     windows = import('windows')
     pragtical_rc += windows.compile_resources('../resources/icons/icon.rc')
     pragtical_rc += windows.compile_resources('../resources/windows/manifest.rc')
+    pragtical_deps += cc.find_library('advapi32', required: true)
 
     # solve missing symbols when building from sdl3 cmake subproject
     if sdl_dep.type_name() == 'internal'
@@ -279,6 +280,9 @@ if sqlite_enabled
         'compat/compat-5.3.c',
     )
     workbench_agent_deps = [lua_dep, sqlite_dep, libm, libdl, librt]
+    if host_machine.system() == 'windows'
+        workbench_agent_deps += cc.find_library('advapi32', required: true)
+    endif
     if not workbench_terminal_runtime_dep.found()
         error('Workbench agent requires the terminal native plugin runtime')
     endif

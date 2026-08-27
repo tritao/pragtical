@@ -47,6 +47,7 @@ start_agent() {
   local log_file="$data_dir/agent.log"
 
   mkdir -p -- "$data_dir"
+  chmod 700 -- "$data_dir"
   rm -f -- "$endpoint"
   "$agent" \
     --data-root "$root_dir/data" \
