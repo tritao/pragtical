@@ -101,9 +101,14 @@ function Stop-WorkbenchAgent {
   param([Parameter(Mandatory = $true)]$Instance)
 
   if (-not $Instance.Process.HasExited) {
-    Stop-Process -Id $Instance.Process.Id -Force
-    $Instance.Process.WaitForExit()
+    # MinGW processes can leave descendants holding redirected stdio handles;
+    # terminate the complete tree before removing its state directory.
+    & taskkill.exe /PID $Instance.Process.Id /T /F | Out-Null
+    if (-not $Instance.Process.WaitForExit(10000)) {
+      throw "Workbench agent did not exit after termination"
+    }
   }
+  Start-Sleep -Milliseconds 100
 }
 
 function Test-WorkbenchAgentLock {
@@ -128,9 +133,10 @@ function Test-WorkbenchAgentLock {
       -WorkingDirectory $root -PassThru -RedirectStandardOutput $secondaryStdout `
       -RedirectStandardError $secondaryStderr
     if (-not $secondary.WaitForExit(10000)) {
-      Stop-Process -Id $secondary.Id -Force -ErrorAction SilentlyContinue
-      $secondary.WaitForExit()
-      throw "Second Workbench agent did not exit after 10s"
+      & taskkill.exe /PID $secondary.Id /T /F | Out-Null
+      if (-not $secondary.WaitForExit(10000)) {
+        throw "Second Workbench agent did not exit after termination"
+      }
     }
     $log = if (Test-Path $secondaryStderr) { Get-Content $secondaryStderr -Raw } else { "" }
     if ($secondary.ExitCode -ne 3 -or -not $log.Contains("workspace_in_use:")) {
