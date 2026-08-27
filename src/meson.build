@@ -292,7 +292,7 @@ if sqlite_enabled
     workbench_agent_deps += workbench_terminal_emulator_dep
     if get_option('net')
         workbench_agent_sources += 'api/net.c'
-        workbench_agent_deps += [sdl3_net_dep, mbedtls_dep, mbedx509_dep, tfpsacrypto_dep]
+        workbench_agent_deps += [sdl_dep, sdl3_net_dep, mbedtls_dep, mbedx509_dep, tfpsacrypto_dep]
     endif
     executable('workbench-agent',
         workbench_agent_sources,
