@@ -204,6 +204,9 @@ jobs:
         run: |
           source scripts/common.sh
           SDL_VIDEO_DRIVER=dummy ./scripts/run-local "$(get_default_build_dir)" test scripts/lua/tests
+      - name: Run Terminal Native Tests
+        run: |
+          meson test -C "$(get_default_build_dir)" terminal-native-components --print-errorlogs
       - name: Run Workbench Windows Tests
         shell: pwsh
         env:
@@ -269,6 +272,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           meson install -C build --destdir="../pragtical" 2>&1 | Tee-Object -FilePath ci-install.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run Terminal Native Tests
+        run: |
+          meson test -C build terminal-native-components --print-errorlogs
       - name: Package
         run: |
           Remove-Item -Recurse -Force -Path "pragtical/lib","pragtical/include"
