@@ -17,7 +17,6 @@ pragtical_sources = [
     'tokenizer/lutf8.c',
     'api/encoding.c',
     'api/diff.c',
-    'api/workbench_transport.c',
     'api/utils/lxlauxlib.c',
     'arena_allocator.c',
     'custom_events.c',
@@ -33,6 +32,12 @@ pragtical_sources = [
     'renderer/cache.c',
     'main.c',
 ]
+
+if host_machine.system() == 'emscripten'
+    pragtical_cargs += '-DPRAGTICAL_NO_LOCAL_TRANSPORT'
+else
+    pragtical_sources += 'api/local_transport.c'
+endif
 
 if sqlite_enabled
     pragtical_sources += 'api/sqlite.c'
@@ -278,7 +283,7 @@ if sqlite_enabled
         'workbench-agent/runtime_lua.c',
         'workbench-agent/emulator_lua.c',
         'api/sqlite.c',
-        'api/workbench_transport.c',
+        'api/local_transport.c',
         'compat/compat-5.3.c',
     )
     workbench_agent_deps = [lua_dep, sqlite_dep, libm, libdl, librt]

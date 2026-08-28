@@ -315,6 +315,7 @@ function RootView:on_mouse_released(button, x, y, ...)
     self.dragged_divider = nil
   end
   if self.dragged_node then
+    local control_transfer = self.dragged_node.control_transfer
     if button == "left" then
       if self.dragged_node.dragging then
         local node = self.root_node:get_child_overlapping_point(self.mouse.x, self.mouse.y)
@@ -350,6 +351,9 @@ function RootView:on_mouse_released(button, x, y, ...)
         core.request_cursor("arrow")
       end
       self.dragged_node = nil
+      if control_transfer and core.control then
+        core.control:finish_tab_drag(control_transfer)
+      end
     end
   end
 end
@@ -413,6 +417,27 @@ function RootView:on_mouse_moved(x, y, dx, dy)
     dn.dragging = common.distance(x, y, dn.drag_start_x, dn.drag_start_y) > style.tab_width * .05
     if dn.dragging then
       core.request_cursor("hand")
+    end
+  end
+
+  if dn and dn.dragging and not dn.control_transfer
+      and not dn.control_transfer_started and core.control then
+    dn.control_transfer_started = true
+    local view = dn.node.views[dn.idx]
+    if view and view.doc then
+      dn.control_transfer = core.control:begin_tab_drag(view.doc)
+    end
+  end
+
+  if not dn and core.control then
+    local transfer = core.control:pending_tab_drag()
+    if transfer then
+      local accepted = core.control:accept_tab_drag(transfer.transfer_id)
+      if accepted then
+        core.request_cursor("arrow")
+        core.redraw = true
+        return
+      end
     end
   end
 

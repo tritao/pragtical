@@ -5,6 +5,7 @@
 #endif
 
 #include "api.h"
+#include "local_transport.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -27,15 +28,16 @@
 #include <sddl.h>
 #endif
 
-#define WORKBENCH_CONNECTION "WorkbenchTransportConnection"
-#define WORKBENCH_SERVER "WorkbenchTransportServer"
-#define WORKBENCH_MAX_FRAME (16u * 1024u * 1024u)
-#define WORKBENCH_PIPE_BUFFER (64u * 1024u)
-#define WORKBENCH_PIPE_INSTANCES 8
+#define LOCAL_TRANSPORT_CONNECTION "LocalTransportConnection"
+#define LOCAL_TRANSPORT_SERVER "LocalTransportServer"
+#define LOCAL_TRANSPORT_MAX_FRAME (16u * 1024u * 1024u)
+#define LOCAL_TRANSPORT_MAX_QUEUED (8u * 1024u * 1024u)
+#define LOCAL_TRANSPORT_PIPE_BUFFER (64u * 1024u)
+#define LOCAL_TRANSPORT_PIPE_INSTANCES 8
 #ifndef _WIN32
-#define WORKBENCH_ENDPOINT_MAX 108
+#define LOCAL_TRANSPORT_ENDPOINT_MAX 108
 #else
-#define WORKBENCH_ENDPOINT_MAX 260
+#define LOCAL_TRANSPORT_ENDPOINT_MAX 260
 #endif
 
 typedef struct {
@@ -45,6 +47,8 @@ typedef struct {
   int fd;
 #endif
   int closed;
+  size_t max_frame_size;
+  size_t max_queued_bytes;
   unsigned char read_header[sizeof(uint32_t)];
   size_t read_header_offset;
   unsigned char *read_buffer;
@@ -63,21 +67,48 @@ typedef struct {
   OVERLAPPED write_overlapped;
   int write_pending;
 #endif
-} workbench_connection;
+} local_transport_connection;
 
 typedef struct {
 #ifdef _WIN32
   HANDLE handle;
 #else
   int fd;
+  dev_t endpoint_device;
+  ino_t endpoint_inode;
+  int endpoint_valid;
 #endif
   int closed;
-  char path[WORKBENCH_ENDPOINT_MAX];
-} workbench_server;
+  size_t max_frame_size;
+  size_t max_queued_bytes;
+  char path[LOCAL_TRANSPORT_ENDPOINT_MAX];
+} local_transport_server;
+
+static int connection_send_frame(lua_State *L);
+
+static void get_limits(lua_State *L, int index, size_t *max_frame_size,
+    size_t *max_queued_bytes) {
+  *max_frame_size = LOCAL_TRANSPORT_MAX_FRAME;
+  *max_queued_bytes = LOCAL_TRANSPORT_MAX_QUEUED;
+  if (lua_isnoneornil(L, index)) return;
+  luaL_checktype(L, index, LUA_TTABLE);
+  lua_getfield(L, index, "max_frame_size");
+  lua_Integer frame = luaL_optinteger(L, -1, *max_frame_size);
+  lua_pop(L, 1);
+  lua_getfield(L, index, "max_queued_bytes");
+  lua_Integer queued = luaL_optinteger(L, -1, *max_queued_bytes);
+  lua_pop(L, 1);
+  if (frame <= 0 || (uint64_t)frame > LOCAL_TRANSPORT_MAX_FRAME)
+    luaL_argerror(L, index, "max_frame_size is out of range");
+  if (queued <= 0 || (uint64_t)queued > SIZE_MAX)
+    luaL_argerror(L, index, "max_queued_bytes is out of range");
+  *max_frame_size = (size_t)frame;
+  *max_queued_bytes = (size_t)queued;
+}
 
 static int build_frame(const char *data, size_t length,
     unsigned char **frame, size_t *frame_length) {
-  if (length > WORKBENCH_MAX_FRAME || length > UINT32_MAX) return 0;
+  if (length > LOCAL_TRANSPORT_MAX_FRAME || length > UINT32_MAX) return 0;
   *frame_length = sizeof(uint32_t) + length;
   *frame = malloc(*frame_length ? *frame_length : 1);
   if (!*frame) return 0;
@@ -91,6 +122,11 @@ static int build_frame(const char *data, size_t length,
 }
 
 #ifndef _WIN32
+static int set_nonblocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
 static int wait_for_fd(int fd, short events, int timeout_ms) {
   struct pollfd descriptor = { fd, events, 0 };
   int result;
@@ -123,29 +159,14 @@ static int read_incremental(int fd, void *buffer, size_t length,
   return 1;
 }
 
-static int write_all(int fd, const void *buffer, size_t length) {
-  const char *cursor = buffer;
-  while (length > 0) {
-    ssize_t count = write(fd, cursor, length);
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      return -1;
-    }
-    if (count == 0) return -1;
-    cursor += count;
-    length -= (size_t)count;
-  }
-  return 1;
-}
-
-static void clear_write_buffer(workbench_connection *connection) {
+static void clear_write_buffer(local_transport_connection *connection) {
   free(connection->write_buffer);
   connection->write_buffer = NULL;
   connection->write_length = 0;
   connection->write_offset = 0;
 }
 
-static void clear_read_state(workbench_connection *connection) {
+static void clear_read_state(local_transport_connection *connection) {
   free(connection->read_buffer);
   connection->read_buffer = NULL;
   connection->read_header_offset = 0;
@@ -157,7 +178,7 @@ static void clear_read_state(workbench_connection *connection) {
 /* Drain at most what the kernel accepts right now. The agent's event loop
    calls this independently for every client, so a slow reader cannot stall
    mutations, runtime polling, or other clients. */
-static int flush_write_buffer(workbench_connection *connection) {
+static int flush_write_buffer(local_transport_connection *connection) {
   while (connection->write_offset < connection->write_length) {
     int flags = MSG_DONTWAIT;
 #ifdef MSG_NOSIGNAL
@@ -187,7 +208,7 @@ static int close_fd(int *fd) {
 }
 
 static int connection_gc(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
+  local_transport_connection *connection = luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
   if (!connection->closed) {
     close_fd(&connection->fd);
     connection->closed = 1;
@@ -198,29 +219,33 @@ static int connection_gc(lua_State *L) {
 }
 
 static int server_gc(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
+  local_transport_server *server = luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
   if (!server->closed) {
     close_fd(&server->fd);
-    unlink(server->path);
+    if (server->endpoint_valid) {
+      struct stat info;
+      if (lstat(server->path, &info) == 0
+          && S_ISSOCK(info.st_mode)
+          && info.st_uid == geteuid()
+          && info.st_dev == server->endpoint_device
+          && info.st_ino == server->endpoint_inode)
+        unlink(server->path);
+    }
     server->closed = 1;
   }
   return 0;
 }
 
-static workbench_connection *check_connection(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
-  if (connection->closed) luaL_error(L, "Workbench transport connection is closed");
-  return connection;
+static local_transport_connection *check_connection(lua_State *L) {
+  return luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
 }
 
-static workbench_server *check_server(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
-  if (server->closed) luaL_error(L, "Workbench transport server is closed");
-  return server;
+static local_transport_server *check_server(lua_State *L) {
+  return luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
 }
 
 static int connection_close(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
+  local_transport_connection *connection = luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
   if (!connection->closed) {
     close_fd(&connection->fd);
     connection->closed = 1;
@@ -231,36 +256,23 @@ static int connection_close(lua_State *L) {
 }
 
 static int connection_send(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
-  size_t length;
-  const char *data = luaL_checklstring(L, 2, &length);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
-  uint32_t network_length = ((uint32_t)length >> 24)
-    | (((uint32_t)length >> 8) & 0x0000ff00u)
-    | (((uint32_t)length << 8) & 0x00ff0000u)
-    | ((uint32_t)length << 24);
-  if (connection->write_buffer) {
-    if (write_all(connection->fd,
-        connection->write_buffer + connection->write_offset,
-        connection->write_length - connection->write_offset) < 0) {
-      clear_write_buffer(connection);
-      return luaL_error(L, "failed to write Workbench frame: %s", strerror(errno));
-    }
-    clear_write_buffer(connection);
-  }
-  if (write_all(connection->fd, &network_length, sizeof(network_length)) < 0
-      || write_all(connection->fd, data, length) < 0) {
-    return luaL_error(L, "failed to write Workbench frame: %s", strerror(errno));
-  }
-  lua_pushboolean(L, 1);
-  return 1;
+  return connection_send_frame(L);
 }
 
-static int connection_send_nonblocking(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
+static int connection_send_frame(lua_State *L) {
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
   size_t length;
   const char *data = luaL_checklstring(L, 2, &length);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
+  if (length > connection->max_frame_size) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "invalid_frame");
+    return 2;
+  }
   if (connection->write_buffer) {
     int flushed = flush_write_buffer(connection);
     if (flushed == 0) {
@@ -279,7 +291,13 @@ static int connection_send_nonblocking(lua_State *L) {
   }
   if (!build_frame(data, length, &connection->write_buffer,
       &connection->write_length))
-    return luaL_error(L, "out of memory writing Workbench frame");
+    return luaL_error(L, "out of memory writing local transport frame");
+  if (connection->write_length > connection->max_queued_bytes) {
+    clear_write_buffer(connection);
+    lua_pushnil(L);
+    lua_pushliteral(L, "queue_overflow");
+    return 2;
+  }
   connection->write_offset = 0;
   int flushed = flush_write_buffer(connection);
   if (flushed > 0) {
@@ -300,7 +318,12 @@ static int connection_send_nonblocking(lua_State *L) {
 }
 
 static int connection_flush(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
   if (!connection->write_buffer) {
     lua_pushboolean(L, 1);
     return 1;
@@ -323,9 +346,21 @@ static int connection_flush(lua_State *L) {
   return 2;
 }
 
+static int connection_has_pending_frame(lua_State *L) {
+  local_transport_connection *connection = check_connection(L);
+  lua_pushboolean(L, !connection->closed
+    && (connection->read_header_offset > 0 || connection->read_frame_active));
+  return 1;
+}
+
 static int connection_receive(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
-  int timeout_ms = (int)luaL_optinteger(L, 2, -1);
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  int timeout_ms = (int)luaL_optinteger(L, 2, 0);
   int result;
   if (!connection->read_frame_active) {
     result = read_incremental(connection->fd, connection->read_header,
@@ -333,7 +368,7 @@ static int connection_receive(lua_State *L) {
       timeout_ms);
     if (result == 0) {
       lua_pushnil(L);
-      lua_pushliteral(L, "timeout");
+      lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
       return 2;
     }
     if (result < 0) {
@@ -352,9 +387,13 @@ static int connection_receive(lua_State *L) {
       | ((network_length >> 8) & 0x0000ff00u)
       | ((network_length << 8) & 0x00ff0000u)
       | (network_length << 24);
-    if (length > WORKBENCH_MAX_FRAME) {
+    if (length > connection->max_frame_size) {
       clear_read_state(connection);
-      return luaL_error(L, "Workbench frame is too large");
+      connection->closed = 1;
+      close_fd(&connection->fd);
+      lua_pushnil(L);
+      lua_pushliteral(L, "invalid_frame");
+      return 2;
     }
     connection->read_length = length;
     connection->read_offset = 0;
@@ -363,7 +402,7 @@ static int connection_receive(lua_State *L) {
       connection->read_buffer = malloc(length);
       if (!connection->read_buffer) {
         clear_read_state(connection);
-        return luaL_error(L, "out of memory reading Workbench frame");
+        return luaL_error(L, "out of memory reading local transport frame");
       }
     }
   }
@@ -372,7 +411,7 @@ static int connection_receive(lua_State *L) {
     connection->read_length, &connection->read_offset, timeout_ms);
   if (result == 0) {
     lua_pushnil(L);
-    lua_pushliteral(L, "timeout");
+    lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
     return 2;
   }
   if (result < 0) {
@@ -391,23 +430,36 @@ static int connection_receive(lua_State *L) {
 }
 
 static int server_close(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
+  local_transport_server *server = luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
   if (!server->closed) {
     close_fd(&server->fd);
-    unlink(server->path);
+    if (server->endpoint_valid) {
+      struct stat info;
+      if (lstat(server->path, &info) == 0
+          && S_ISSOCK(info.st_mode)
+          && info.st_uid == geteuid()
+          && info.st_dev == server->endpoint_device
+          && info.st_ino == server->endpoint_inode)
+        unlink(server->path);
+    }
     server->closed = 1;
   }
   return 0;
 }
 
 static int server_accept(lua_State *L) {
-  workbench_server *server = check_server(L);
-  int timeout_ms = (int)luaL_optinteger(L, 2, -1);
+  local_transport_server *server = check_server(L);
+  if (server->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  int timeout_ms = (int)luaL_optinteger(L, 2, 0);
   if (timeout_ms >= 0) {
     int ready = wait_for_fd(server->fd, POLLIN, timeout_ms);
     if (ready == 0) {
       lua_pushnil(L);
-      lua_pushliteral(L, "timeout");
+      lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
       return 2;
     }
     if (ready < 0) {
@@ -422,7 +474,8 @@ static int server_accept(lua_State *L) {
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to accept Workbench client: %s", strerror(errno));
+      lua_pushstring(L, errno == EAGAIN || errno == EWOULDBLOCK
+        ? "would_block" : "closed");
     return 2;
   }
 #ifdef SO_PEERCRED
@@ -436,10 +489,18 @@ static int server_accept(lua_State *L) {
     return 2;
   }
 #endif
-  workbench_connection *connection = lua_newuserdata(L, sizeof(*connection));
+  if (!set_nonblocking(fd)) {
+    close(fd);
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  local_transport_connection *connection = lua_newuserdata(L, sizeof(*connection));
   memset(connection, 0, sizeof(*connection));
   connection->fd = fd;
-  luaL_setmetatable(L, WORKBENCH_CONNECTION);
+  connection->max_frame_size = server->max_frame_size;
+  connection->max_queued_bytes = server->max_queued_bytes;
+  luaL_setmetatable(L, LOCAL_TRANSPORT_CONNECTION);
   return 1;
 }
 
@@ -456,7 +517,7 @@ static int validate_endpoint(const char *path, int require_socket) {
 }
 
 static int prepare_endpoint(const char *path) {
-  char parent[WORKBENCH_ENDPOINT_MAX];
+  char parent[LOCAL_TRANSPORT_ENDPOINT_MAX];
   const char *separator = strrchr(path, '/');
   if (separator) {
     size_t length = (size_t)(separator - path);
@@ -468,9 +529,10 @@ static int prepare_endpoint(const char *path) {
     memcpy(parent, path, length);
     parent[length] = '\0';
     struct stat parent_info;
-    if (stat(parent, &parent_info) < 0) return -1;
-    if (!S_ISDIR(parent_info.st_mode) || parent_info.st_uid != geteuid()
-        || (parent_info.st_mode & 0022) != 0) {
+    if (lstat(parent, &parent_info) < 0) return -1;
+    if (!S_ISDIR(parent_info.st_mode) || S_ISLNK(parent_info.st_mode)
+        || parent_info.st_uid != geteuid()
+        || (parent_info.st_mode & 0077) != 0) {
       errno = EACCES;
       return -1;
     }
@@ -492,19 +554,21 @@ static int prepare_endpoint(const char *path) {
 
 static int connect_socket(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
-  if (strlen(path) >= WORKBENCH_ENDPOINT_MAX)
-    return luaL_error(L, "Workbench endpoint path is too long");
+  size_t max_frame_size, max_queued_bytes;
+  get_limits(L, 2, &max_frame_size, &max_queued_bytes);
+  if (strlen(path) >= LOCAL_TRANSPORT_ENDPOINT_MAX)
+    return luaL_error(L, "local transport endpoint path is too long");
   int endpoint_status = validate_endpoint(path, 1);
   if (endpoint_status < 0) {
     lua_pushnil(L);
-    lua_pushfstring(L, "Workbench endpoint is not owned by the current user: %s",
+    lua_pushfstring(L, "local transport endpoint is not owned by the current user: %s",
       strerror(errno));
     return 2;
   }
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to create Workbench socket: %s", strerror(errno));
+    lua_pushfstring(L, "failed to create local transport socket: %s", strerror(errno));
     return 2;
   }
   struct sockaddr_un address;
@@ -515,24 +579,34 @@ static int connect_socket(lua_State *L) {
     int error = errno;
     close(fd);
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to connect to Workbench agent: %s", strerror(error));
+    lua_pushfstring(L, "failed to connect to local transport endpoint: %s", strerror(error));
     return 2;
   }
-  workbench_connection *connection = lua_newuserdata(L, sizeof(*connection));
+  if (!set_nonblocking(fd)) {
+    close(fd);
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  local_transport_connection *connection = lua_newuserdata(L, sizeof(*connection));
   memset(connection, 0, sizeof(*connection));
   connection->fd = fd;
-  luaL_setmetatable(L, WORKBENCH_CONNECTION);
+  connection->max_frame_size = max_frame_size;
+  connection->max_queued_bytes = max_queued_bytes;
+  luaL_setmetatable(L, LOCAL_TRANSPORT_CONNECTION);
   return 1;
 }
 
 static int listen_socket(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
-  if (strlen(path) >= WORKBENCH_ENDPOINT_MAX)
-    return luaL_error(L, "Workbench endpoint path is too long");
+  size_t max_frame_size, max_queued_bytes;
+  get_limits(L, 2, &max_frame_size, &max_queued_bytes);
+  if (strlen(path) >= LOCAL_TRANSPORT_ENDPOINT_MAX)
+    return luaL_error(L, "local transport endpoint path is too long");
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to create Workbench socket: %s", strerror(errno));
+    lua_pushfstring(L, "failed to create local transport socket: %s", strerror(errno));
     return 2;
   }
   struct sockaddr_un address;
@@ -540,25 +614,46 @@ static int listen_socket(lua_State *L) {
   address.sun_family = AF_UNIX;
   strcpy(address.sun_path, path);
   if (prepare_endpoint(path) < 0
-      || bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0
-      || listen(fd, 8) < 0
-      || chmod(path, 0600) < 0) {
+      || bind(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
     int error = errno;
     close(fd);
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to listen for Workbench clients: %s", strerror(error));
+    lua_pushfstring(L, "failed to listen for local transport clients: %s", strerror(error));
     return 2;
   }
-  workbench_server *server = lua_newuserdata(L, sizeof(*server));
+  if (listen(fd, 8) < 0 || chmod(path, 0600) < 0 || !set_nonblocking(fd)) {
+    int error = errno;
+    close(fd);
+    unlink(path);
+    lua_pushnil(L);
+    lua_pushfstring(L, "failed to listen for local transport clients: %s", strerror(error));
+    return 2;
+  }
+  struct stat endpoint_info;
+  if (lstat(path, &endpoint_info) < 0 || !S_ISSOCK(endpoint_info.st_mode)
+      || endpoint_info.st_uid != geteuid()) {
+    int error = errno ? errno : EACCES;
+    close(fd);
+    unlink(path);
+    lua_pushnil(L);
+    lua_pushfstring(L, "failed to validate local transport endpoint: %s", strerror(error));
+    return 2;
+  }
+  local_transport_server *server = lua_newuserdata(L, sizeof(*server));
   server->fd = fd;
   server->closed = 0;
+  server->endpoint_device = endpoint_info.st_dev;
+  server->endpoint_inode = endpoint_info.st_ino;
+  server->endpoint_valid = 1;
+  server->max_frame_size = max_frame_size;
+  server->max_queued_bytes = max_queued_bytes;
   strcpy(server->path, path);
-  luaL_setmetatable(L, WORKBENCH_SERVER);
+  luaL_setmetatable(L, LOCAL_TRANSPORT_SERVER);
   return 1;
 }
 #else
 static int pipe_name(const char *endpoint, char *name, size_t capacity) {
-  static const char prefix[] = "\\\\.\\pipe\\pragtical-workbench-";
+  static const char prefix[] = "\\\\.\\pipe\\pragtical-local-";
   if (strncmp(endpoint, "\\\\.\\pipe\\", 9) == 0) {
     if (strlen(endpoint) >= capacity) return 0;
     strcpy(name, endpoint);
@@ -613,7 +708,7 @@ static HANDLE create_pipe(const char *name) {
   HANDLE handle = CreateNamedPipeA(name,
     PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-    WORKBENCH_PIPE_INSTANCES, WORKBENCH_PIPE_BUFFER, WORKBENCH_PIPE_BUFFER,
+    LOCAL_TRANSPORT_PIPE_INSTANCES, LOCAL_TRANSPORT_PIPE_BUFFER, LOCAL_TRANSPORT_PIPE_BUFFER,
     0, &attributes);
   DWORD error = GetLastError();
   LocalFree(descriptor);
@@ -639,7 +734,7 @@ static int pipe_wait_data(HANDLE handle, int timeout_ms, DWORD *available) {
   }
 }
 
-static int finish_pending_read(workbench_connection *connection, int timeout_ms) {
+static int finish_pending_read(local_transport_connection *connection, int timeout_ms) {
   if (!connection->read_pending) return 1;
   DWORD wait = WaitForSingleObject(connection->read_event,
     timeout_ms < 0 ? INFINITE : (DWORD)timeout_ms);
@@ -662,7 +757,7 @@ static int finish_pending_read(workbench_connection *connection, int timeout_ms)
   return 1;
 }
 
-static int read_pipe(workbench_connection *connection, void *buffer,
+static int read_pipe(local_transport_connection *connection, void *buffer,
     size_t length, size_t *offset, int timeout_ms) {
   int result = finish_pending_read(connection, timeout_ms);
   if (result <= 0) return result;
@@ -710,7 +805,7 @@ static int read_pipe(workbench_connection *connection, void *buffer,
   return 1;
 }
 
-static void clear_read_state(workbench_connection *connection) {
+static void clear_read_state(local_transport_connection *connection) {
   if (connection->read_pending) {
     CancelIoEx(connection->handle, &connection->read_overlapped);
     connection->read_pending = 0;
@@ -753,7 +848,7 @@ static int write_pipe(HANDLE handle, const void *buffer, size_t length) {
   return 1;
 }
 
-static void clear_write_buffer(workbench_connection *connection) {
+static void clear_write_buffer(local_transport_connection *connection) {
   if (connection->write_pending) {
     CancelIoEx(connection->handle, &connection->write_overlapped);
     connection->write_pending = 0;
@@ -768,7 +863,7 @@ static void clear_write_buffer(workbench_connection *connection) {
   connection->write_offset = 0;
 }
 
-static int flush_write_buffer(workbench_connection *connection) {
+static int flush_write_buffer(local_transport_connection *connection) {
   for (;;) {
     if (connection->write_pending) {
       DWORD count = 0;
@@ -818,7 +913,7 @@ static int flush_write_buffer(workbench_connection *connection) {
 }
 
 static int connection_gc(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
+  local_transport_connection *connection = luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
   if (!connection->closed) {
     clear_write_buffer(connection);
     clear_read_state(connection);
@@ -833,7 +928,7 @@ static int connection_gc(lua_State *L) {
 }
 
 static int server_gc(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
+  local_transport_server *server = luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
   if (!server->closed) {
     CloseHandle(server->handle);
     server->handle = INVALID_HANDLE_VALUE;
@@ -842,20 +937,18 @@ static int server_gc(lua_State *L) {
   return 0;
 }
 
-static workbench_connection *check_connection(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
-  if (connection->closed) luaL_error(L, "Workbench transport connection is closed");
+static local_transport_connection *check_connection(lua_State *L) {
+  local_transport_connection *connection = luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
   return connection;
 }
 
-static workbench_server *check_server(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
-  if (server->closed) luaL_error(L, "Workbench transport server is closed");
+static local_transport_server *check_server(lua_State *L) {
+  local_transport_server *server = luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
   return server;
 }
 
 static int connection_close(lua_State *L) {
-  workbench_connection *connection = luaL_checkudata(L, 1, WORKBENCH_CONNECTION);
+  local_transport_connection *connection = luaL_checkudata(L, 1, LOCAL_TRANSPORT_CONNECTION);
   if (!connection->closed) {
     clear_write_buffer(connection);
     clear_read_state(connection);
@@ -870,39 +963,23 @@ static int connection_close(lua_State *L) {
 }
 
 static int connection_send(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
-  size_t length;
-  const char *data = luaL_checklstring(L, 2, &length);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
-  uint32_t network_length = ((uint32_t)length >> 24)
-    | (((uint32_t)length >> 8) & 0x0000ff00u)
-    | (((uint32_t)length << 8) & 0x00ff0000u)
-    | ((uint32_t)length << 24);
-  if (connection->write_buffer) {
-    int flushed;
-    do {
-      flushed = flush_write_buffer(connection);
-      if (flushed == 0 && connection->write_event)
-        WaitForSingleObject(connection->write_event, INFINITE);
-    } while (flushed == 0);
-    if (flushed < 0)
-      return luaL_error(L, "failed to write Workbench named pipe: %lu",
-        (unsigned long)GetLastError());
-  }
-  if (write_pipe(connection->handle, &network_length, sizeof(network_length)) < 0
-      || write_pipe(connection->handle, data, length) < 0) {
-    return luaL_error(L, "failed to write Workbench named pipe: %lu",
-      (unsigned long)GetLastError());
-  }
-  lua_pushboolean(L, 1);
-  return 1;
+  return connection_send_frame(L);
 }
 
-static int connection_send_nonblocking(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
+static int connection_send_frame(lua_State *L) {
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
   size_t length;
   const char *data = luaL_checklstring(L, 2, &length);
-  if (length > WORKBENCH_MAX_FRAME) return luaL_error(L, "Workbench frame is too large");
+  if (length > connection->max_frame_size) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "invalid_frame");
+    return 2;
+  }
   if (connection->write_buffer) {
     int flushed = flush_write_buffer(connection);
     if (flushed == 0) {
@@ -922,7 +999,13 @@ static int connection_send_nonblocking(lua_State *L) {
   }
   if (!build_frame(data, length, &connection->write_buffer,
       &connection->write_length))
-    return luaL_error(L, "out of memory writing Workbench frame");
+    return luaL_error(L, "out of memory writing local transport frame");
+  if (connection->write_length > connection->max_queued_bytes) {
+    clear_write_buffer(connection);
+    lua_pushnil(L);
+    lua_pushliteral(L, "queue_overflow");
+    return 2;
+  }
   connection->write_offset = 0;
   int flushed = flush_write_buffer(connection);
   if (flushed > 0) {
@@ -944,7 +1027,12 @@ static int connection_send_nonblocking(lua_State *L) {
 }
 
 static int connection_flush(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
   if (!connection->write_buffer) {
     lua_pushboolean(L, 1);
     return 1;
@@ -968,9 +1056,21 @@ static int connection_flush(lua_State *L) {
   return 2;
 }
 
+static int connection_has_pending_frame(lua_State *L) {
+  local_transport_connection *connection = check_connection(L);
+  lua_pushboolean(L, !connection->closed
+    && (connection->read_header_offset > 0 || connection->read_frame_active));
+  return 1;
+}
+
 static int connection_receive(lua_State *L) {
-  workbench_connection *connection = check_connection(L);
-  int timeout_ms = (int)luaL_optinteger(L, 2, -1);
+  local_transport_connection *connection = check_connection(L);
+  if (connection->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  int timeout_ms = (int)luaL_optinteger(L, 2, 0);
   int result;
   if (!connection->read_frame_active) {
     result = read_pipe(connection, connection->read_header,
@@ -978,7 +1078,7 @@ static int connection_receive(lua_State *L) {
       timeout_ms);
     if (result == 0) {
       lua_pushnil(L);
-      lua_pushliteral(L, "timeout");
+      lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
       return 2;
     }
     if (result < 0) {
@@ -998,9 +1098,14 @@ static int connection_receive(lua_State *L) {
       | ((network_length >> 8) & 0x0000ff00u)
       | ((network_length << 8) & 0x00ff0000u)
       | (network_length << 24);
-    if (length > WORKBENCH_MAX_FRAME) {
+    if (length > connection->max_frame_size) {
       clear_read_state(connection);
-      return luaL_error(L, "Workbench frame is too large");
+      connection->closed = 1;
+      CloseHandle(connection->handle);
+      connection->handle = INVALID_HANDLE_VALUE;
+      lua_pushnil(L);
+      lua_pushliteral(L, "invalid_frame");
+      return 2;
     }
     connection->read_length = length;
     connection->read_offset = 0;
@@ -1009,7 +1114,7 @@ static int connection_receive(lua_State *L) {
       connection->read_buffer = malloc(length);
       if (!connection->read_buffer) {
         clear_read_state(connection);
-        return luaL_error(L, "out of memory reading Workbench frame");
+        return luaL_error(L, "out of memory reading local transport frame");
       }
     }
   }
@@ -1018,7 +1123,7 @@ static int connection_receive(lua_State *L) {
     connection->read_length, &connection->read_offset, timeout_ms);
   if (result == 0) {
     lua_pushnil(L);
-    lua_pushliteral(L, "timeout");
+    lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
     return 2;
   }
   if (result < 0) {
@@ -1038,7 +1143,7 @@ static int connection_receive(lua_State *L) {
 }
 
 static int server_close(lua_State *L) {
-  workbench_server *server = luaL_checkudata(L, 1, WORKBENCH_SERVER);
+  local_transport_server *server = luaL_checkudata(L, 1, LOCAL_TRANSPORT_SERVER);
   if (!server->closed) {
     CloseHandle(server->handle);
     server->handle = INVALID_HANDLE_VALUE;
@@ -1048,8 +1153,13 @@ static int server_close(lua_State *L) {
 }
 
 static int server_accept(lua_State *L) {
-  workbench_server *server = check_server(L);
-  int timeout_ms = (int)luaL_optinteger(L, 2, -1);
+  local_transport_server *server = check_server(L);
+  if (server->closed) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+  }
+  int timeout_ms = (int)luaL_optinteger(L, 2, 0);
   OVERLAPPED overlapped = {0};
   overlapped.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
   if (!overlapped.hEvent) return luaL_error(L, "failed to create named pipe event");
@@ -1059,7 +1169,7 @@ static int server_accept(lua_State *L) {
       && connect_error != ERROR_PIPE_CONNECTED) {
     CloseHandle(overlapped.hEvent);
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to accept Workbench named pipe: %lu",
+    lua_pushfstring(L, "failed to accept local transport named pipe: %lu",
       (unsigned long)connect_error);
     return 2;
   }
@@ -1073,7 +1183,7 @@ static int server_accept(lua_State *L) {
       server->handle = create_pipe(server->path);
       if (server->handle == INVALID_HANDLE_VALUE) server->closed = 1;
       lua_pushnil(L);
-      lua_pushliteral(L, "timeout");
+      lua_pushstring(L, timeout_ms == 0 ? "would_block" : "timeout");
       return 2;
     }
     if (wait != WAIT_OBJECT_0) {
@@ -1087,21 +1197,25 @@ static int server_accept(lua_State *L) {
   HANDLE connection_handle = server->handle;
   server->handle = create_pipe(server->path);
   if (server->handle == INVALID_HANDLE_VALUE) server->closed = 1;
-  workbench_connection *connection = lua_newuserdata(L, sizeof(*connection));
+  local_transport_connection *connection = lua_newuserdata(L, sizeof(*connection));
   memset(connection, 0, sizeof(*connection));
   connection->handle = connection_handle;
-  luaL_setmetatable(L, WORKBENCH_CONNECTION);
+  connection->max_frame_size = server->max_frame_size;
+  connection->max_queued_bytes = server->max_queued_bytes;
+  luaL_setmetatable(L, LOCAL_TRANSPORT_CONNECTION);
   return 1;
 }
 
 static int connect_socket(lua_State *L) {
   const char *endpoint = luaL_checkstring(L, 1);
-  char name[WORKBENCH_ENDPOINT_MAX];
+  size_t max_frame_size, max_queued_bytes;
+  get_limits(L, 2, &max_frame_size, &max_queued_bytes);
+  char name[LOCAL_TRANSPORT_ENDPOINT_MAX];
   if (!pipe_name(endpoint, name, sizeof(name)))
-    return luaL_error(L, "Workbench endpoint path is too long");
+    return luaL_error(L, "local transport endpoint path is too long");
   if (!WaitNamedPipeA(name, NMPWAIT_WAIT_FOREVER)) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to connect to Workbench named pipe: %lu",
+    lua_pushfstring(L, "failed to connect to local transport named pipe: %lu",
       (unsigned long)GetLastError());
     return 2;
   }
@@ -1109,43 +1223,49 @@ static int connect_socket(lua_State *L) {
     OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
   if (handle == INVALID_HANDLE_VALUE) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to open Workbench named pipe: %lu",
+    lua_pushfstring(L, "failed to open local transport named pipe: %lu",
       (unsigned long)GetLastError());
     return 2;
   }
-  workbench_connection *connection = lua_newuserdata(L, sizeof(*connection));
+  local_transport_connection *connection = lua_newuserdata(L, sizeof(*connection));
   memset(connection, 0, sizeof(*connection));
   connection->handle = handle;
-  luaL_setmetatable(L, WORKBENCH_CONNECTION);
+  connection->max_frame_size = max_frame_size;
+  connection->max_queued_bytes = max_queued_bytes;
+  luaL_setmetatable(L, LOCAL_TRANSPORT_CONNECTION);
   return 1;
 }
 
 static int listen_socket(lua_State *L) {
   const char *endpoint = luaL_checkstring(L, 1);
-  char name[WORKBENCH_ENDPOINT_MAX];
+  size_t max_frame_size, max_queued_bytes;
+  get_limits(L, 2, &max_frame_size, &max_queued_bytes);
+  char name[LOCAL_TRANSPORT_ENDPOINT_MAX];
   if (!pipe_name(endpoint, name, sizeof(name)))
-    return luaL_error(L, "Workbench endpoint path is too long");
+    return luaL_error(L, "local transport endpoint path is too long");
   HANDLE handle = create_pipe(name);
   if (handle == INVALID_HANDLE_VALUE) {
     lua_pushnil(L);
-    lua_pushfstring(L, "failed to listen for Workbench named pipe: %lu",
+    lua_pushfstring(L, "failed to listen for local transport named pipe: %lu",
       (unsigned long)GetLastError());
     return 2;
   }
-  workbench_server *server = lua_newuserdata(L, sizeof(*server));
+  local_transport_server *server = lua_newuserdata(L, sizeof(*server));
   server->handle = handle;
   server->closed = 0;
+  server->max_frame_size = max_frame_size;
+  server->max_queued_bytes = max_queued_bytes;
   strcpy(server->path, name);
-  luaL_setmetatable(L, WORKBENCH_SERVER);
+  luaL_setmetatable(L, LOCAL_TRANSPORT_SERVER);
   return 1;
 }
 #endif
 
-int luaopen_workbench_transport(lua_State *L) {
+int luaopen_local_transport(lua_State *L) {
   static const luaL_Reg connection_methods[] = {
     { "send", connection_send },
-    { "send_nonblocking", connection_send_nonblocking },
     { "flush", connection_flush },
+    { "has_pending_frame", connection_has_pending_frame },
     { "receive", connection_receive },
     { "close", connection_close },
     { "__gc", connection_gc },
@@ -1157,12 +1277,12 @@ int luaopen_workbench_transport(lua_State *L) {
     { "__gc", server_gc },
     { NULL, NULL },
   };
-  luaL_newmetatable(L, WORKBENCH_CONNECTION);
+  luaL_newmetatable(L, LOCAL_TRANSPORT_CONNECTION);
   luaL_setfuncs(L, connection_methods, 0);
   lua_pushvalue(L, -1);
   lua_setfield(L, -2, "__index");
   lua_pop(L, 1);
-  luaL_newmetatable(L, WORKBENCH_SERVER);
+  luaL_newmetatable(L, LOCAL_TRANSPORT_SERVER);
   luaL_setfuncs(L, server_methods, 0);
   lua_pushvalue(L, -1);
   lua_setfield(L, -2, "__index");

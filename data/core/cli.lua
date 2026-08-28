@@ -12,7 +12,7 @@ local core = require "core"
 ---Long name of the flag eg: my-flag for --my-flag
 ---@field name string
 ---Short name eg: m for -m
----@field short_name string
+---@field short_name? string
 ---Description used for the flag when running `app help mycommand`
 ---@field description string
 ---Data type of the flag if an argument/value can be given to it
@@ -278,8 +278,9 @@ local function print_command_help(command)
       else
         flag_info = "(type: flag)"
       end
+      local short_name = flag.short_name and ("-" .. flag.short_name .. ", ") or ""
       local text = cli.colorize(
-          "  -" .. flag.short_name .. ", " .. "--" .. flag.name, "green"
+          "  " .. short_name .. "--" .. flag.name, "green"
         ) .. pad_text(
           flag.description or "",
           flags_padding,
@@ -489,7 +490,9 @@ function cli.parse(args)
       local flag_found, flag_value
       if cmd.flags then
         for _, flag_data in ipairs(cmd.flags) do
-          if #flag_type == 1 and flag:match("^"..flag_data.short_name) then
+          if #flag_type == 1 and flag_data.short_name
+              and flag_data.short_name ~= ""
+              and flag:match("^"..flag_data.short_name) then
             flag_found = flag_data
             if #flag > 1 then
               flag_value = string.sub(flag, 2)
@@ -627,6 +630,36 @@ cli.set_default {
       name = "fork",
       short_name = "f",
       description = "Fork the editor to the background"
+    },
+    {
+      name = "new-instance",
+      short_name = nil,
+      description = "Start a new editor instance for the supplied paths",
+      type = "empty"
+    },
+    {
+      name = "reuse-instance",
+      short_name = nil,
+      description = "Forward the supplied paths to a running instance",
+      type = "empty"
+    },
+    {
+      name = "instance",
+      short_name = nil,
+      description = "Select a running instance by ID",
+      type = "string"
+    },
+    {
+      name = "add-project",
+      short_name = nil,
+      description = "Add the supplied directory to a running instance",
+      type = "empty"
+    },
+    {
+      name = "change-project",
+      short_name = nil,
+      description = "Change the running instance project to the supplied directory",
+      type = "empty"
     }
   },
   execute = function(flags, arguments)
@@ -653,7 +686,7 @@ cli.set_default {
 -- Register edit command
 cli.register {
   command = "edit",
-  description = "Explicitly open files for editing on a new instance skipping the IPC system.",
+  description = "Explicitly open files for editing on a new instance.",
   usage = "[<file_to_open_1>] [<file_to_open_2>] ...",
   exit_editor = false
 }
