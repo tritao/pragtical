@@ -44,6 +44,13 @@ Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 
+## Noto Sans Symbols 2
+
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
+
+Noto Sans Symbols 2 version 2.008 is bundled as a terminal symbol fallback.
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+
 # SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
 
 PREAMBLE
