@@ -37,5 +37,10 @@ if [[ ! -f "$executable" ]]; then
   exit 1
 fi
 
-export PRAGTICAL_USERDIR="${PRAGTICAL_USERDIR:-$script_dir/.run/user}"
+# Keep durable development state outside scripts/run-local's disposable .run
+# staging tree.
+export PRAGTICAL_USERDIR="${PRAGTICAL_USERDIR:-$script_dir/.pragtical-dev/user}"
+# The Codex host may set NO_COLOR for its own output. Do not leak that
+# terminal-output preference into Pragtical's integrated terminal.
+unset NO_COLOR
 exec "$executable" "$@"

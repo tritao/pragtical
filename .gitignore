@@ -9,6 +9,7 @@ subprojects/.wraplock
 .cache
 .ccls-cache
 .pragtical-debug.log
+.pragtical-dev/
 .run*
 *.diff
 *.exe

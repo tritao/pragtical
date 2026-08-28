@@ -183,6 +183,14 @@ static int system_get_file_info(lua_State *L) {
   lua_setfield(L, -2, "type");
   lua_pushinteger(L, (lua_Integer)info.st_size);
   lua_setfield(L, -2, "size");
+#ifndef _WIN32
+  lua_pushinteger(L, (lua_Integer)info.st_dev);
+  lua_setfield(L, -2, "device");
+  lua_pushinteger(L, (lua_Integer)info.st_ino);
+  lua_setfield(L, -2, "inode");
+  lua_pushinteger(L, (lua_Integer)info.st_nlink);
+  lua_setfield(L, -2, "links");
+#endif
   return 1;
 }
 
