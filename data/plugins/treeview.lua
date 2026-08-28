@@ -1061,8 +1061,8 @@ command.add(
   end
 })
 
-local projectsearch = pcall(require, "plugins.projectsearch")
-if projectsearch then
+local projectsearch_loaded, projectsearch = pcall(require, "plugins.projectsearch")
+if projectsearch_loaded and projectsearch then
   menu:register(function()
     local item = treeitem()
     return item and item.type == "dir"

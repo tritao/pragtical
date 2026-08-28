@@ -1,9 +1,14 @@
 -- mod-version:3
+local config = require "core.config"
+if not system.has_capability("threads") then
+  config.plugins.projectsearch = false
+  return false
+end
+
 local core = require "core"
 local common = require "core.common"
 local keymap = require "core.keymap"
 local command = require "core.command"
-local config = require "core.config"
 local style = require "core.style"
 local DocView = require "core.docview"
 local Widget = require "widget"

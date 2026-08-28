@@ -938,7 +938,7 @@ function core.load_plugins()
     elseif config.plugins[plugin.name] ~= false then
       local start = system.get_time()
       local ok, loaded_plugin = core.try(plugin.load, plugin)
-      if ok then
+      if ok and loaded_plugin ~= false then
         local plugin_version = ""
         if plugin.version_string and  plugin.version_string ~= MOD_VERSION_STRING then
           plugin_version = "["..plugin.version_string.."]"
@@ -950,9 +950,15 @@ function core.load_plugins()
           common.dirname(plugin.file),
           (system.get_time() - start) * 1000
         )
-        if config.plugins[plugin.name].onload then
+        if config.plugins[plugin.name]
+          and config.plugins[plugin.name].onload then
           core.try(config.plugins[plugin.name].onload, loaded_plugin)
         end
+      elseif ok then
+        core.log_quiet(
+          "Skipped plugin %q because it is unavailable on this platform",
+          plugin.name
+        )
       else
         no_errors = false
       end

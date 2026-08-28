@@ -1,6 +1,11 @@
 -- mod-version:3
-local core = require "core"
 local config = require "core.config"
+if not system.has_capability("threads") then
+  config.plugins.findfile = false
+  return false
+end
+
+local core = require "core"
 local common = require "core.common"
 local command = require "core.command"
 local keymap = require "core.keymap"
