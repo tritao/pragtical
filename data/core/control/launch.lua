@@ -45,18 +45,28 @@ function launch.forward(paths, options)
 
   local accepted = {}
   local function request(index, method, params)
-    local _, request_error = client:request_sync(method, params)
+    local result, request_error = client:request_sync(method, params,
+      method == "project.change" and 300 or nil)
     if request_error then return nil, error_message(request_error) end
+    if method == "project.change"
+        and (type(result) ~= "table" or result.status ~= "confirmed") then
+      return nil, "project change was not confirmed"
+    end
     accepted[index] = true
-    return true
+    return true, result
   end
 
   local target_info = system.get_file_info(target)
   if target_info and target_info.type == "dir"
       and options.directory_mode then
     local method = options.directory_mode == "add" and "project.add" or "project.change"
-    local ok, request_error = request(1, method, { path = target })
+    local ok, result_or_error = request(1, method, { path = target })
+    local request_error = not ok and result_or_error
     if not ok then client:close(); return false, accepted, request_error end
+    if method == "project.change" then
+      client:close()
+      return true, accepted
+    end
   else
     for index, path in ipairs(paths) do
       local info = system.get_file_info(path)

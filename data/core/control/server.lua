@@ -108,14 +108,32 @@ function Server:_handle(client, message)
     return ok, error_result
   end
   local is_hello = message.method == "control.hello"
+  local context = {
+    server = self,
+    client = client,
+  }
+  context.defer = function()
+    if context.deferred then error("control response is already deferred") end
+    context.deferred = true
+    return function(result, error_result)
+      if context.responded then return end
+      context.responded = true
+      if client.connection then
+        self:_respond(client, message.id, result, error_result)
+      end
+    end
+  end
   local result, dispatch_error = self.registry:dispatch(message.method, message.params, {
     server = self,
     client = client,
+    defer = context.defer,
   }, self.options.development)
   if dispatch_error then
+    context.deferred = false
     return self:_respond(client, message.id, nil, dispatch_error)
   end
   if is_hello then client.hello = true end
+  if context.deferred or context.responded then return true end
   return self:_respond(client, message.id, result)
 end
 

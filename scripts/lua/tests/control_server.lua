@@ -104,4 +104,33 @@ test.describe("control server", function()
     test.ok(connection.closed)
     server:close()
   end)
+
+  test.test("keeps deferred requests open until the handler responds", function()
+    local response
+    local registry = Registry.new()
+    registry:register {
+      method = "control.hello",
+      execute = function() return { protocol_version = 1 } end,
+    }
+    registry:register {
+      method = "test.deferred",
+      execute = function(_, context)
+        response = context.defer()
+      end,
+    }
+    local connection = fake_connection {
+      assert(Protocol.encode(Protocol.request("hello", "control.hello", {}))),
+      assert(Protocol.encode(Protocol.request("deferred", "test.deferred", {}))),
+    }
+    local transport = fake_transport(connection)
+    local server = assert(Server.new(transport, "fake", registry))
+    server:poll()
+    test.equal(#connection.sent, 1)
+    test.ok(response)
+
+    response({ ok = true })
+    server:poll()
+    test.equal(connection.sent[2].result.ok, true)
+    server:close()
+  end)
 end)

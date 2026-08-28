@@ -154,18 +154,33 @@ test.describe("control tab transfers", function()
     test.equal(second_result.documents[2].document_id, "document:3")
   end)
 
-  test.test("project changes report that restart is requested", function()
+  test.test("project changes wait for confirmation before responding", function()
     local control = new_control()
     local old_open_project = core.open_project
+    local old_confirm = core.confirm_close_docs_async
     local called_path
+    local response
     core.open_project = function(path) called_path = path end
+    core.confirm_close_docs_async = function(_, on_confirm, _, path)
+      on_confirm(path)
+    end
     local path = system.absolute_path("data/core")
-    local result, change_error = control.registry:dispatch("project.change", { path = path }, {})
+    local result, change_error = control.registry:dispatch("project.change", { path = path }, {
+      defer = function()
+        return function(response_result, response_error)
+          response = { result = response_result, error = response_error }
+        end
+      end,
+    })
     core.open_project = old_open_project
+    core.confirm_close_docs_async = old_confirm
 
-    test.ok(result, change_error and change_error.message)
-    test.equal(result.path, path)
-    test.equal(result.status, "requested")
+    test.is_nil(result)
+    test.is_nil(change_error)
+    test.ok(response)
+    test.ok(response.result)
+    test.equal(response.result.path, path)
+    test.equal(response.result.status, "confirmed")
     test.equal(called_path, path)
   end)
 end)

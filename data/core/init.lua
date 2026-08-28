@@ -769,7 +769,7 @@ function core.init()
 end
 
 
-function core.confirm_close_docs(docs, close_fn, ...)
+local function confirm_close_docs(docs, close_fn, cancel_fn, ...)
   local dirty_count = 0
   local dirty_name
   for _, doc in ipairs(docs or core.docs) do
@@ -792,10 +792,19 @@ function core.confirm_close_docs(docs, close_fn, ...)
     }
     core.nag_view:show("Unsaved Changes", text, opt, function(item)
       if item.text == "Yes" then close_fn(table.unpack(args)) end
+      if item.text == "No" and cancel_fn then cancel_fn(table.unpack(args)) end
     end)
   else
     close_fn(...)
   end
+end
+
+function core.confirm_close_docs(docs, close_fn, ...)
+  return confirm_close_docs(docs, close_fn, nil, ...)
+end
+
+function core.confirm_close_docs_async(docs, close_fn, cancel_fn, ...)
+  return confirm_close_docs(docs, close_fn, cancel_fn, ...)
 end
 
 local temp_uid = math.floor(system.get_time() * 1000) % 0xffffffff

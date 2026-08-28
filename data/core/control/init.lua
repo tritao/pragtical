@@ -222,14 +222,20 @@ function Control:_register_defaults()
   self:register {
     method = "project.change",
     validate = function(params) return valid_path(params) end,
-    execute = function(params)
+    execute = function(params, context)
       local path = system.absolute_path(params.path) or params.path
       local info = system.get_file_info(path)
       if not info or info.type ~= "dir" then
         return nil, Errors.new("not_found", "project directory was not found", false)
       end
-      core.open_project(path)
-      return { path = path, status = "requested" }
+      local respond = context.defer()
+      core.confirm_close_docs_async(core.docs, function(dirpath)
+        core.open_project(dirpath)
+        respond({ path = path, status = "confirmed" })
+      end, function()
+        respond(nil, Errors.new("permission_denied", "project change was declined", false))
+      end, path)
+      return nil
     end,
   }
   self:register {
