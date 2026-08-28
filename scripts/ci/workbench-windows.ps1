@@ -163,6 +163,22 @@ function Remove-WorkbenchState {
   }
 }
 
+function Stop-WorkbenchRunAgents {
+  # This job owns the Workbench agents it launches. A test can also start a
+  # detached agent while reconnecting, so clean up every agent before the
+  # runner attempts to remove the temporary state directories.
+  $agents = @(Get-Process -Name "workbench-agent" -ErrorAction SilentlyContinue)
+  foreach ($agentProcess in $agents) {
+    if (-not $agentProcess.HasExited) {
+      & taskkill.exe /PID $agentProcess.Id /T /F | Out-Null
+    }
+  }
+  foreach ($agentProcess in $agents) {
+    $agentProcess.WaitForExit(10000) | Out-Null
+  }
+  Start-Sleep -Milliseconds 250
+}
+
 function Test-WorkbenchAgentLock {
   param(
     [Parameter(Mandatory = $true)][string]$Workspace,
@@ -473,6 +489,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
   Invoke-AgentFaultCase "after_running_commit" "start"
   Invoke-AgentFaultCase "after_stopped_commit" "stop"
 } finally {
+  Stop-WorkbenchRunAgents
   if (Test-Path $agentState) {
     Remove-WorkbenchState $agentState
   }
