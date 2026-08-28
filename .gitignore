@@ -3,6 +3,7 @@ build*/
 submodules/
 subprojects/*/
 subprojects/.wraplock
+subprojects/libtsm.wrap
 !subprojects/packagefiles
 /appimage*
 .vscode
