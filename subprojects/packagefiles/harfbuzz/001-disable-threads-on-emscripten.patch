@@ -1,0 +1,9 @@
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -328,7 +328,7 @@ endif
+ # threads
+ thread_dep = null_dep
+-if host_machine.system() != 'windows'
++if host_machine.system() != 'windows' and host_machine.system() != 'emscripten'
+   thread_dep = dependency('threads', required: false)

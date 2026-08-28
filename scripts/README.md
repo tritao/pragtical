@@ -5,6 +5,8 @@ Various scripts and configurations used to configure, build, and package Pragtic
 ### Build
 
 - **build.sh**
+- **build-web.sh**: Builds the static Emscripten web preview into `dist/web`.
+- **serve-web.sh**: Serves a web preview over HTTP for local browser testing.
 - **build-packages.sh**: In root directory, as all in one script; relies to the
   ones in this directory.
 
