@@ -248,6 +248,9 @@ executable('pragtical',
     c_args: pragtical_cargs,
     objc_args: pragtical_cargs,
     link_args: pragtical_link_args,
+    link_depends: host_machine.system() == 'emscripten'
+        ? meson.current_build_dir() / '..' / '.pragtical-web-data.stamp'
+        : [],
     link_whole: pragtical_link_whole,
     install_dir: pragtical_bindir,
     install: true,
