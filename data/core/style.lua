@@ -1,4 +1,5 @@
 local common = require "core.common"
+local font = require "core.font"
 local style = {}
 
 style.divider_size = common.round(1 * SCALE)
@@ -39,7 +40,7 @@ style.font = renderer.font.load(DATADIR .. "/fonts/FiraSans-Regular.ttf", 15 * S
 style.big_font = style.font:copy(46 * SCALE)
 style.icon_font = renderer.font.load(DATADIR .. "/fonts/icons.ttf", 16 * SCALE, {antialiasing="grayscale", hinting="full"})
 style.icon_big_font = style.icon_font:copy(23 * SCALE)
-style.code_font = renderer.font.load(DATADIR .. "/fonts/JetBrainsMono-Regular.ttf", 15 * SCALE)
+style.code_font = font.load_code(15 * SCALE, { fallbacks = false })
 
 style.syntax = {}
 
