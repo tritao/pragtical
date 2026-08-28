@@ -33,6 +33,14 @@
 #ifdef __linux__
   #include <sys/vfs.h>
 #endif
+
+#ifdef __EMSCRIPTEN__
+  #include <emscripten/emscripten.h>
+  EM_JS(int, pragtical_open_url, (const char *url), {
+    var target = UTF8ToString(url);
+    return window.open(target, "_blank", "noopener,noreferrer") ? 1 : 0;
+  });
+#endif
 #endif
 
 #define dialogfinished_event_name "dialogfinished"
@@ -432,8 +440,6 @@ top:
 
 
 static int f_wait_event(lua_State *L) {
-  int nargs = lua_gettop(L);
-
   /* If events are already pending in our queue, return immediately. */
   if (system_has_pending_events()) {
     lua_pushboolean(L, true);
@@ -444,6 +450,8 @@ static int f_wait_event(lua_State *L) {
    * called from SDL_AppIterate.  Use SDL_Delay as a non-blocking substitute
    * so that the callback loop can still deliver events on the next iteration.
    * Indefinite waits are capped at 100 ms to keep the editor responsive. */
+  #ifndef __EMSCRIPTEN__
+  int nargs = lua_gettop(L);
   if (nargs >= 1) {
     double n = luaL_checknumber(L, 1);
     if (n < 0) n = 0;
@@ -451,6 +459,7 @@ static int f_wait_event(lua_State *L) {
   } else {
     SDL_Delay(100);
   }
+  #endif
 
   lua_pushboolean(L, system_has_pending_events());
   return 1;
@@ -961,12 +970,25 @@ static int f_get_time(lua_State *L) {
 static int f_sleep(lua_State *L) {
   double n = luaL_checknumber(L, 1);
   if (n < 0) n = 0;
+#ifndef __EMSCRIPTEN__
   SDL_Delay(n * 1000);
+#else
+  /* SDL_AppIterate is already driven by the browser event loop. Blocking it
+   * with SDL_Delay would stall input and rendering, so pacing is handled by
+   * the callback cadence and core.run_step(). */
+  (void)n;
+#endif
   return 0;
 }
 
 
 static int f_exec(lua_State *L) {
+#ifdef __EMSCRIPTEN__
+  luaL_checkstring(L, 1);
+  lua_pushnil(L);
+  lua_pushliteral(L, "subprocesses are not supported in web builds");
+  return 2;
+#else
   size_t len;
   const char *cmd = luaL_checklstring(L, 1, &len);
   char *buf = SDL_malloc(len + 32);
@@ -981,6 +1003,42 @@ static int f_exec(lua_State *L) {
 #endif
   SDL_free(buf);
   return 0;
+#endif
+}
+
+
+static int f_open_url(lua_State *L) {
+  const char *url = luaL_checkstring(L, 1);
+#ifdef __EMSCRIPTEN__
+  lua_pushboolean(L, pragtical_open_url(url));
+#else
+  lua_pushboolean(L, SDL_OpenURL(url));
+#endif
+  return 1;
+}
+
+
+static int f_has_capability(lua_State *L) {
+  const char *capability = luaL_checkstring(L, 1);
+  bool supported = false;
+
+#ifdef __EMSCRIPTEN__
+  supported =
+    strcmp(capability, "clipboard") == 0 ||
+    strcmp(capability, "filesystem") == 0 ||
+    strcmp(capability, "lua") == 0 ||
+    strcmp(capability, "renderer") == 0 ||
+    strcmp(capability, "syntax") == 0 ||
+    strcmp(capability, "themes") == 0 ||
+    strcmp(capability, "editing") == 0 ||
+    strcmp(capability, "url") == 0;
+#else
+  /* Native builds retain the historical API surface. */
+  supported = true;
+#endif
+
+  lua_pushboolean(L, supported);
+  return 1;
 }
 
 static int f_fuzzy_match(lua_State *L) {
@@ -1027,6 +1085,7 @@ typedef struct lua_function_node {
   fptr address;
 } lua_function_node;
 
+#ifndef __EMSCRIPTEN__
 #define P(FUNC) { "lua_" #FUNC, (fptr)(lua_##FUNC) }
 #define U(FUNC) { "luaL_" #FUNC, (fptr)(luaL_##FUNC) }
 #define S(FUNC) { #FUNC, (fptr)(FUNC) }
@@ -1113,6 +1172,7 @@ static void* api_require(const char* symbol) {
   }
   return NULL;
 }
+#endif
 
 static int f_library_gc(lua_State *L) {
   lua_getfield(L, 1, "handle");
@@ -1123,6 +1183,11 @@ static int f_library_gc(lua_State *L) {
 }
 
 static int f_load_native_plugin(lua_State *L) {
+#ifdef __EMSCRIPTEN__
+  luaL_checkstring(L, 1);
+  luaL_checkstring(L, 2);
+  return luaL_error(L, "native plugins are not supported in web builds");
+#else
   char entrypoint_name[512]; entrypoint_name[sizeof(entrypoint_name) - 1] = '\0';
   int result;
 
@@ -1176,6 +1241,7 @@ static int f_load_native_plugin(lua_State *L) {
     return luaL_error(L, "Unable to load %s: entrypoint must return a value", name);
 
   return result;
+#endif
 }
 
 #ifdef _WIN32
@@ -1681,6 +1747,8 @@ static const luaL_Reg lib[] = {
   { "get_time",              f_get_time              },
   { "sleep",                 f_sleep                 },
   { "exec",                  f_exec                  },
+  { "open_url",              f_open_url              },
+  { "has_capability",        f_has_capability        },
   { "fuzzy_match",           f_fuzzy_match           },
   { "set_window_opacity",    f_set_window_opacity    },
   { "load_native_plugin",    f_load_native_plugin    },

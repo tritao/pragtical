@@ -409,6 +409,9 @@ end
 
 function core.init()
   DEFAULT_SCALE, DEFAULT_FPS = system.get_display_info()
+  -- Some browser display implementations do not expose a refresh rate.
+  -- Keep the frame scheduler finite when SDL reports zero.
+  if DEFAULT_FPS <= 0 then DEFAULT_FPS = 60 end
   SCALE = tonumber(os.getenv("PRAGTICAL_SCALE")) or DEFAULT_SCALE
 
   -- load config after scale detection for flags that depend on it
@@ -2113,6 +2116,11 @@ end
 
 local last_file_dialog_tag = 0
 local function open_dialog(type, window, callback, options)
+  if not system.has_capability("filesystem_picker") then
+    callback("error", "system file pickers are not available in web builds")
+    return
+  end
+
   local types = {
     ["openfile"] = system.open_file_dialog,
     ["opendirectory"] = system.open_directory_dialog,

@@ -5,10 +5,6 @@ pragtical_sources = [
     'api/renwindow.c',
     'api/regex.c',
     'api/system.c',
-    'api/process.c',
-    'api/channel.c',
-    'api/thread.c',
-    'api/shmem.c',
     'api/canvas.c',
     'api/utf8.c',
     'api/tokenizer.c',
@@ -33,6 +29,15 @@ pragtical_sources = [
     'renderer/cache.c',
     'main.c',
 ]
+
+if host_machine.system() == 'emscripten'
+    # Keep the API modules present so Lua plugins receive a predictable,
+    # descriptive unsupported result instead of an unresolved symbol or a
+    # browser-side abort.
+    pragtical_sources += files('api/process_web.c', 'api/thread_web.c', 'api/shmem_web.c')
+else
+    pragtical_sources += files('api/process.c', 'api/channel.c', 'api/thread.c', 'api/shmem.c')
+endif
 
 if sqlite_enabled
     pragtical_sources += 'api/sqlite.c'

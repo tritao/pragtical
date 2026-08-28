@@ -374,7 +374,8 @@ config.dirmonitor_backend = nil
 ---
 ---Defaults to false if no sandbox is detected.
 ---@type boolean
-config.use_system_file_picker = system.get_sandbox() ~= "none"
+config.use_system_file_picker = system.has_capability("filesystem_picker")
+  and system.get_sandbox() ~= "none"
 
 ---Controls how the caret column is displayed in the status bar.
 ---

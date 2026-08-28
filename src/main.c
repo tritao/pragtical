@@ -186,7 +186,11 @@ static bool init_lua_state(AppState *app) {
   }
   lua_setglobal(app->L, "ARGS");
 
+#ifdef __EMSCRIPTEN__
+  lua_pushliteral(app->L, "web");
+#else
   lua_pushstring(app->L, SDL_GetPlatform());
+#endif
   lua_setglobal(app->L, "PLATFORM");
 
   lua_pushstring(app->L, PRAGTICAL_ARCH_TUPLE);
