@@ -608,6 +608,7 @@ function Node:update_layout()
     else
       Node.copy_position_and_size(av, self)
     end
+    if av.on_layout then av:on_layout() end
   else
     local x1, y1 = self.a:get_locked_size()
     local x2, y2 = self.b:get_locked_size()

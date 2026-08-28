@@ -1041,6 +1041,7 @@ static int f_has_capability(lua_State *L) {
     strcmp(capability, "url") == 0;
 #else
   /* Native builds retain the historical API surface. */
+  (void)capability;
   supported = true;
 #endif
 

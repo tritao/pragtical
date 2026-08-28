@@ -98,6 +98,10 @@ function SidebarShell:layout_content()
   view.visible = self.host.visible
 end
 
+function SidebarShell:on_layout()
+  self:layout_content()
+end
+
 function SidebarShell:sync_target_size()
   local entry = self.host:get_entry(self.host.active_mode)
   local view = self.host.active_view
