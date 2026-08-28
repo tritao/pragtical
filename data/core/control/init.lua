@@ -24,16 +24,17 @@ local function valid_path(params, name)
   return { path = params[name or "path"] }
 end
 
-local function document_id(doc)
+local function document_id(control, doc)
   if not doc.control_document_id then
-    doc.control_document_id = string.format("document:%d", #core.docs + 1)
+    control.document_sequence = control.document_sequence + 1
+    doc.control_document_id = string.format("document:%d", control.document_sequence)
   end
   return doc.control_document_id
 end
 
-local function find_document(params)
+local function find_document(control, params)
   for _, doc in ipairs(core.docs) do
-    if params.document_id and document_id(doc) == params.document_id then return doc end
+    if params.document_id and document_id(control, doc) == params.document_id then return doc end
     if params.path and doc.abs_filename == params.path then return doc end
   end
 end
@@ -54,7 +55,26 @@ local function valid_transfer(params)
     document_id = params.document_id,
     path = params.path,
     modified = false,
+    destination_instance_id = params.destination_instance_id,
   }
+end
+
+local function valid_destination_transfer(params)
+  local transfer, validation_error = valid_transfer(params)
+  if not transfer then return nil, validation_error end
+  if type(params.destination_instance_id) ~= "string"
+      or params.destination_instance_id == "" then
+    return nil, "destination_instance_id is required"
+  end
+  transfer.destination_instance_id = params.destination_instance_id
+  return transfer
+end
+
+local function transfer_for_destination(transfer, destination_instance_id)
+  local result = {}
+  for key, value in pairs(transfer) do result[key] = value end
+  result.destination_instance_id = destination_instance_id
+  return result
 end
 
 local function show_transfer_error(message)
@@ -73,6 +93,8 @@ function Control.new(options)
     pending_transfers = {},
     pending_transfer_order = {},
     active_transfers = {},
+    incoming_transfers = {},
+    document_sequence = 0,
     transfer_sequence = 0,
     available = transport_available,
     options = {
@@ -154,7 +176,7 @@ function Control:_register_defaults()
       local result = {}
       for _, doc in ipairs(core.docs) do
         result[#result + 1] = {
-          document_id = document_id(doc),
+          document_id = document_id(self, doc),
           path = doc.abs_filename,
           modified = doc:is_dirty(),
           saved = doc.abs_filename ~= nil,
@@ -173,13 +195,13 @@ function Control:_register_defaults()
       return params
     end,
     execute = function(params)
-      local doc = find_document(params)
+      local doc = find_document(self, params)
       if not doc then return nil, Errors.new("not_found", "document was not found", false) end
       if not doc.abs_filename then
         return nil, Errors.new("invalid_argument", "document has no path", false)
       end
       doc:save()
-      return { document_id = document_id(doc), path = doc.abs_filename, modified = false }
+      return { document_id = document_id(self, doc), path = doc.abs_filename, modified = false }
     end,
   }
   self:register {
@@ -207,7 +229,7 @@ function Control:_register_defaults()
         return nil, Errors.new("not_found", "project directory was not found", false)
       end
       core.open_project(path)
-      return { path = path }
+      return { path = path, status = "requested" }
     end,
   }
   self:register {
@@ -221,6 +243,10 @@ function Control:_register_defaults()
       if not info or info.type ~= "file" then
         return nil, Errors.new("not_found", "transferred document was not found", false)
       end
+      if self.pending_transfers[params.transfer_id]
+          or self.incoming_transfers[params.transfer_id] then
+        return nil, Errors.new("busy", "tab transfer is already pending", true)
+      end
       self.pending_transfers[params.transfer_id] = params
       self.pending_transfer_order[#self.pending_transfer_order + 1] = params.transfer_id
       core.redraw = true
@@ -232,24 +258,73 @@ function Control:_register_defaults()
     method = "tab.drag.cancel",
     validate = valid_transfer,
     execute = function(params)
+      if params.destination_instance_id == self.instance.instance_id then
+        local incoming = self.incoming_transfers[params.transfer_id]
+        self.pending_transfers[params.transfer_id] = nil
+        if incoming then
+          self:_cancel_incoming_transfer(incoming)
+        end
+      elseif params.source_instance_id == self.instance.instance_id
+          and params.destination_instance_id then
+        local active = self.active_transfers[params.transfer_id]
+        if active and (not active.destination_instance_id
+            or active.destination_instance_id == params.destination_instance_id) then
+          self.active_transfers[params.transfer_id] = nil
+          active.phase = "canceled"
+        end
+      end
       self.pending_transfers[params.transfer_id] = nil
       self:publish("tab.drag.cancel", params)
       return { cancelled = true, transfer_id = params.transfer_id }
     end,
   }
   self:register {
-    method = "tab.drag.complete",
-    validate = valid_transfer,
+    method = "tab.drag.accept",
+    validate = valid_destination_transfer,
     execute = function(params)
-      local doc = self.active_transfers[params.transfer_id]
-      if not doc or doc.abs_filename ~= params.path
-          or document_id(doc) ~= params.document_id then
+      if params.source_instance_id ~= self.instance.instance_id then
+        return nil, Errors.new("permission_denied", "transfer source does not match this instance", false)
+      end
+      local active = self.active_transfers[params.transfer_id]
+      if not active or active.transfer.path ~= params.path
+          or active.transfer.document_id ~= params.document_id then
+        return nil, Errors.new("not_found", "tab transfer is no longer active", false)
+      end
+      if active.phase == "accepted" or active.phase == "completing" then
+        if active.destination_instance_id == params.destination_instance_id then
+          return { accepted = true, transfer_id = params.transfer_id }
+        end
+        return nil, Errors.new("busy", "tab transfer already has a destination", true)
+      end
+      if active.phase ~= "offered" then
+        return nil, Errors.new("not_found", "tab transfer is no longer available", false)
+      end
+      active.phase = "accepted"
+      active.destination_instance_id = params.destination_instance_id
+      self:_cancel_transfer_peers(params.transfer_id, params.destination_instance_id)
+      self:publish("tab.drag.accept", params)
+      return { accepted = true, transfer_id = params.transfer_id }
+    end,
+  }
+  self:register {
+    method = "tab.drag.complete",
+    validate = valid_destination_transfer,
+    execute = function(params)
+      local active = self.active_transfers[params.transfer_id]
+      local doc = active and active.document
+      if not active or active.phase ~= "accepted"
+          or active.destination_instance_id ~= params.destination_instance_id
+          or doc.abs_filename ~= params.path
+          or document_id(self, doc) ~= params.document_id then
         return nil, Errors.new("not_found", "tab transfer is no longer active", false)
       end
       if doc:is_dirty() or not doc.abs_filename then
         self.active_transfers[params.transfer_id] = nil
+        active.phase = "canceled"
+        self:publish("tab.drag.cancel", params)
         return nil, Errors.new("invalid_argument", "modified documents cannot be transferred", false)
       end
+      active.phase = "completing"
       for _, view in ipairs(core.get_views_referencing_doc(doc)) do
         local node = core.root_view.root_node:get_node_for_view(view)
         if node then node:close_view(core.root_view.root_node, view) end
@@ -274,13 +349,54 @@ function Control:_close_transfer_peers(transfer_id)
   for index = #self.peer_clients, 1, -1 do
     local peer = self.peer_clients[index]
     if peer.transfer_id == transfer_id then
-      peer.client:close()
-      table.remove(self.peer_clients, index)
+      -- A cancellation request must be allowed to reach every losing
+      -- destination. The winning peer can be closed as soon as the source
+      -- document completes.
+      if not peer.cancel_requested or peer.done or peer.failed then
+        peer.client:close()
+        table.remove(self.peer_clients, index)
+      end
+    end
+  end
+end
+
+function Control:_send_peer_cancel(peer)
+  if peer.failed or peer.done or peer.cancel_sent then return end
+  if not peer.instance_id then
+    peer.cancel_after_hello = true
+    return
+  end
+  if peer.instance_id == peer.cancel_winner then
+    peer.done = true
+    peer.client:close()
+    return
+  end
+  peer.cancel_sent = true
+  local cancel = peer.client:request("tab.drag.cancel",
+    transfer_for_destination(peer.transfer, peer.instance_id),
+    function(_, error_result)
+      peer.failed = error_result ~= nil
+      peer.done = true
+    end, 2)
+  if not cancel then
+    peer.failed = true
+    peer.done = true
+    peer.client:close()
+  end
+end
+
+function Control:_cancel_transfer_peers(transfer_id, winner)
+  for _, peer in ipairs(self.peer_clients) do
+    if peer.transfer_id == transfer_id then
+      peer.cancel_requested = true
+      peer.cancel_winner = winner
+      self:_send_peer_cancel(peer)
     end
   end
 end
 
 function Control:_queue_peer_transfer(peer, transfer)
+  peer.transfer = transfer
   local request, request_error = peer.client:request("control.hello", {
     client_id = "instance:" .. self.instance.instance_id,
   }, function(result, error_result)
@@ -288,6 +404,11 @@ function Control:_queue_peer_transfer(peer, transfer)
         or type(result.instance_id) ~= "string" then
       peer.client:close()
       peer.failed = true
+      return
+    end
+    peer.instance_id = result.instance_id
+    if peer.cancel_requested then
+      self:_send_peer_cancel(peer)
       return
     end
     local offered, offer_error = peer.client:request("tab.drag.offer", transfer,
@@ -313,11 +434,15 @@ function Control:begin_tab_drag(doc)
   local transfer = {
     transfer_id = self.instance.instance_id .. ":transfer:" .. tostring(self.transfer_sequence),
     source_instance_id = self.instance.instance_id,
-    document_id = document_id(doc),
+    document_id = document_id(self, doc),
     path = doc.abs_filename,
     modified = false,
   }
-  self.active_transfers[transfer.transfer_id] = doc
+  self.active_transfers[transfer.transfer_id] = {
+    document = doc,
+    phase = "offered",
+    transfer = transfer,
+  }
   self:publish("tab.drag.start", transfer)
   for _, descriptor in ipairs(Discovery.list(transport)) do
     if descriptor.instance_id ~= self.instance.instance_id then
@@ -329,6 +454,7 @@ function Control:begin_tab_drag(doc)
         local peer = {
           client = client,
           transfer_id = transfer.transfer_id,
+          transfer = transfer,
         }
         self.peer_clients[#self.peer_clients + 1] = peer
         self:_queue_peer_transfer(peer, transfer)
@@ -346,16 +472,76 @@ function Control:pending_tab_drag()
   end
 end
 
-function Control:_complete_tab_drag_at_destination(transfer)
+function Control:_restore_pending_transfer(transfer)
+  if self.pending_transfers[transfer.transfer_id]
+      or self.incoming_transfers[transfer.transfer_id] then return end
+  self.pending_transfers[transfer.transfer_id] = transfer
+  self.pending_transfer_order[#self.pending_transfer_order + 1] = transfer.transfer_id
+end
+
+function Control:_rollback_destination(state)
+  if not state.opened_new_view or not state.opened_view then return end
+  local node = core.root_view.root_node:get_node_for_view(state.opened_view)
+  if node then node:remove_view(core.root_view.root_node, state.opened_view) end
+  state.opened_view = nil
+  core.redraw = true
+end
+
+function Control:_send_destination_cancel(state)
+  local peer = state.peer
+  if not peer or peer.cancel_sent or peer.done then return end
+  peer.cancel_sent = true
+  local cancel = peer.client:request("tab.drag.cancel",
+    transfer_for_destination(state.transfer, self.instance.instance_id),
+    function(_, error_result)
+      peer.failed = error_result ~= nil
+      peer.done = true
+      peer.client:close()
+    end, 2)
+  if not cancel then
+    peer.failed = true
+    peer.done = true
+    peer.client:close()
+  end
+end
+
+function Control:_cancel_incoming_transfer(state)
+  if state.phase == "canceled" or state.phase == "complete" then return end
+  state.phase = "canceled"
+  self.incoming_transfers[state.transfer.transfer_id] = nil
+  self:_rollback_destination(state)
+  if state.peer then
+    state.peer.done = true
+    state.peer.client:close()
+  end
+  core.redraw = true
+end
+
+function Control:_destination_failed(state, error_result)
+  if state.phase == "canceled" or state.phase == "complete" then return end
+  local accepted = state.phase == "accepted" or state.phase == "completing"
+  state.phase = "canceled"
+  self.incoming_transfers[state.transfer.transfer_id] = nil
+  self:_rollback_destination(state)
+  if accepted then
+    -- The source has already entered its accepted phase, so release it
+    -- explicitly. It must never infer completion from this failure.
+    self:_send_destination_cancel(state)
+  elseif state.peer then
+    state.peer.done = true
+    state.peer.client:close()
+  end
+  local message = type(error_result) == "table" and error_result.message
+    or tostring(error_result or "tab transfer failed")
+  show_transfer_error("Tab transfer failed: " .. message)
+end
+
+function Control:_complete_tab_drag_at_destination(state)
+  local transfer = state.transfer
   local info = system.get_file_info(transfer.path)
   if not info or info.type ~= "file" then
     return nil, Errors.new("not_found", "transferred document was not found", false)
   end
-  local ok, open_error = pcall(core.open_file, transfer.path)
-  if not ok then
-    return nil, Errors.new("internal", open_error, false)
-  end
-  self:publish("tab.drag.accept", transfer)
 
   local descriptor, selection_error = Discovery.select(nil, {
     transport = transport,
@@ -371,21 +557,61 @@ function Control:_complete_tab_drag_at_destination(transfer)
   local peer = {
     client = client,
     transfer_id = transfer.transfer_id,
+    transfer = transfer,
   }
+  state.peer = peer
   self.peer_clients[#self.peer_clients + 1] = peer
   local hello, hello_error = client:request("control.hello", {
     client_id = "instance:" .. self.instance.instance_id,
   }, function(result, error_result)
+    if state.phase ~= "accepting" then return end
     if error_result or not result or result.protocol_version ~= 1
         or type(result.instance_id) ~= "string" then
-      peer.failed = true
+      self:_destination_failed(state, error_result or "source hello failed")
       return
     end
-    local complete = client:request("tab.drag.complete", transfer, function(_, complete_error)
-      peer.failed = complete_error ~= nil
-      client:close()
-    end)
-    if not complete then peer.failed = true end
+    peer.instance_id = result.instance_id
+    local accepted = client:request("tab.drag.accept",
+      transfer_for_destination(transfer, self.instance.instance_id),
+      function(accept_result, accept_error)
+        if state.phase ~= "accepting" then return end
+        if accept_error or not accept_result or accept_result.accepted ~= true then
+          self:_destination_failed(state, accept_error or "source rejected tab transfer")
+          return
+        end
+        state.phase = "accepted"
+        local existing_doc = find_document(self, { path = transfer.path })
+        local existing_views = existing_doc and core.get_views_referencing_doc(existing_doc) or {}
+        local ok, view_or_error = pcall(core.open_file, transfer.path)
+        if not ok or not view_or_error then
+          self:_destination_failed(state, Errors.new("internal",
+            ok and "destination could not open transferred document" or view_or_error, false))
+          return
+        end
+        state.opened_view = view_or_error
+        state.opened_new_view = true
+        for _, existing_view in ipairs(existing_views) do
+          if existing_view == view_or_error then state.opened_new_view = false; break end
+        end
+        self:publish("tab.drag.accept", transfer)
+        state.phase = "completing"
+        local complete = client:request("tab.drag.complete",
+          transfer_for_destination(transfer, self.instance.instance_id),
+          function(_, complete_error)
+            if complete_error then
+              self:_destination_failed(state, complete_error)
+              return
+            end
+            state.phase = "complete"
+            self.incoming_transfers[transfer.transfer_id] = nil
+            peer.done = true
+            client:close()
+          end)
+        if not complete then
+          self:_destination_failed(state, "could not queue transfer completion")
+        end
+      end)
+    if not accepted then self:_destination_failed(state, "could not queue transfer acceptance") end
   end)
   if not hello then
     client:close()
@@ -398,43 +624,32 @@ function Control:accept_tab_drag(transfer_id)
   local transfer = self.pending_transfers[transfer_id]
   if not transfer then return nil, Errors.new("not_found", "tab offer is no longer available", false) end
   self.pending_transfers[transfer_id] = nil
-  local result, error_result = self:_complete_tab_drag_at_destination(transfer)
-  if not result then
-    self.pending_transfers[transfer_id] = transfer
-    self.pending_transfer_order[#self.pending_transfer_order + 1] = transfer_id
-    return nil, error_result
+  local state = { transfer = transfer, phase = "accepting" }
+  self.incoming_transfers[transfer_id] = state
+  local started, start_error = self:_complete_tab_drag_at_destination(state)
+  if not started then
+    self.incoming_transfers[transfer_id] = nil
+    state.phase = "canceled"
+    self:_restore_pending_transfer(transfer)
+    return nil, start_error
   end
-  return result
+  return { accepted = true, pending = true, transfer_id = transfer_id }
 end
 
 function Control:finish_tab_drag(transfer)
   if not transfer then return end
-  if self.active_transfers[transfer.transfer_id] then
+  local active = self.active_transfers[transfer.transfer_id]
+  if active and active.phase == "offered" then
+    -- Once the source has processed tab.drag.accept, the accepted/completing
+    -- phases are terminal from the mouse interaction's point of view. A
+    -- release can cancel only the still-unclaimed offer.
+    active.phase = "canceling"
     self.active_transfers[transfer.transfer_id] = nil
     self:publish("tab.drag.cancel", transfer)
-    for _, peer in ipairs(self.peer_clients) do
-      if peer.transfer_id == transfer.transfer_id and not peer.failed then
-        local cancel = peer.client:request("tab.drag.cancel", transfer,
-          function(_, error_result)
-            peer.failed = error_result ~= nil
-            peer.done = true
-            peer.client:close()
-          end, 2)
-        if not cancel then
-          peer.failed = true
-          peer.done = true
-          peer.client:close()
-        end
-      end
-    end
+    self:_cancel_transfer_peers(transfer.transfer_id)
+    self:_close_transfer_peers(transfer.transfer_id)
   end
-  for index = #self.peer_clients, 1, -1 do
-    local peer = self.peer_clients[index]
-    if peer.transfer_id == transfer.transfer_id and (peer.done or peer.failed) then
-      peer.client:close()
-      table.remove(self.peer_clients, index)
-    end
-  end
+  self:_close_transfer_peers(transfer.transfer_id)
 end
 
 function Control:start()
