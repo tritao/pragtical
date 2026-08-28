@@ -29,3 +29,13 @@ an input file.
 ```sh
 ./scripts/run-local build run scripts/lua/benchmarks/tokenizer.lua /path/to/file.ext
 ```
+
+The terminal redraw benchmark launches a terminal view under Xvfb, feeds it
+deterministic ANSI and Unicode output, and reports redraw timing:
+
+```sh
+PRAGTICAL_BIN=build-linux-x86_64/src/pragtical ./scripts/test-terminal-redraw.sh
+```
+
+Set `PRAGTICAL_PERF_MIN_FPS` to make the benchmark fail below a chosen FPS
+threshold.

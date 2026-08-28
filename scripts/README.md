@@ -21,6 +21,7 @@ Various scripts and configurations used to configure, build, and package Pragtic
 - **install-dependencies.sh**: Installs required applications to build, package
   and run Pragtical, mainly useful for CI and documentation purpose.
   Preferably not to be used in user systems.
+- **test-terminal-redraw.sh**: Runs the terminal redraw benchmark under Xvfb.
 - **fontello-config.json**:    Used by the icons generator.
 - **generate_header.sh**: Generates a header file for native plugin API
 - **keymap-generator**: Generates a JSON file containing the keymap
