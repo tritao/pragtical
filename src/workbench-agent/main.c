@@ -119,7 +119,12 @@ static int acquire_workbench_lock(const char *path, workbench_lock *lock) {
 #ifdef _WIN32
   lock->handle = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL,
     OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (lock->handle == INVALID_HANDLE_VALUE) return -1;
+  if (lock->handle == INVALID_HANDLE_VALUE) {
+    /* The primary agent deliberately opens the lock without sharing. A
+       second agent therefore reports the ownership conflict from CreateFile
+       before it can reach LockFileEx. */
+    return GetLastError() == ERROR_SHARING_VIOLATION ? 0 : -1;
+  }
   OVERLAPPED overlapped = {0};
   if (LockFileEx(lock->handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
       0, 1, 0, &overlapped)) return 1;
