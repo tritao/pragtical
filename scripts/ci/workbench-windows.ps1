@@ -98,21 +98,64 @@ function Start-WorkbenchAgent {
   return [PSCustomObject]@{
     Process = $process
     Endpoint = $endpoint
+    StateDirectory = $StateDirectory
   }
+}
+
+function Get-WorkbenchAgentProcessIds {
+  param([Parameter(Mandatory = $true)][string]$StateDirectory)
+
+  $normalizedStateDirectory = [System.IO.Path]::GetFullPath($StateDirectory).TrimEnd('\')
+  return @(Get-CimInstance Win32_Process -Filter "Name = 'workbench-agent.exe'" |
+    Where-Object {
+      $_.CommandLine -and
+        $_.CommandLine.IndexOf($normalizedStateDirectory,
+          [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    } |
+    Select-Object -ExpandProperty ProcessId)
 }
 
 function Stop-WorkbenchAgent {
   param([Parameter(Mandatory = $true)]$Instance)
 
-  if (-not $Instance.Process.HasExited) {
+  $process = $Instance.Process
+  $process.Refresh()
+  if (-not $process.HasExited) {
     # MinGW processes can leave descendants holding redirected stdio handles;
     # terminate the complete tree before removing its state directory.
-    & taskkill.exe /PID $Instance.Process.Id /T /F | Out-Null
-    if (-not $Instance.Process.WaitForExit(10000)) {
+    & taskkill.exe /PID $process.Id /T /F | Out-Null
+    if (-not $process.WaitForExit(10000)) {
       throw "Workbench agent did not exit after termination"
     }
   }
-  Start-Sleep -Milliseconds 100
+
+  # If the parent has already exited, taskkill /T cannot reach a descendant
+  # that outlived it. Find any agent still carrying this exact data directory
+  # and terminate it before the directory is reused or removed.
+  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    $remaining = @(Get-WorkbenchAgentProcessIds $Instance.StateDirectory)
+    if ($remaining.Count -eq 0) { return }
+    foreach ($processId in $remaining) {
+      & taskkill.exe /PID $processId /T /F | Out-Null
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  throw "Workbench agent process still owns its state directory: $($Instance.StateDirectory)"
+}
+
+function Remove-WorkbenchState {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path $Path)) { return }
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    try {
+      Remove-Item -Recurse -Force -Path $Path -ErrorAction Stop
+      return
+    } catch {
+      if ($attempt -eq 19) { throw }
+      Start-Sleep -Milliseconds 250
+    }
+  }
 }
 
 function Test-WorkbenchAgentLock {
@@ -292,7 +335,7 @@ function Invoke-AgentFaultCase {
   $stateDirectory = Join-Path $env:RUNNER_TEMP `
     "pragtical-workbench-fault-$env:GITHUB_RUN_ID-$caseName"
   if (Test-Path $stateDirectory) {
-    Remove-Item -Recurse -Force $stateDirectory
+    Remove-WorkbenchState $stateDirectory
   }
   New-Item -ItemType Directory -Force -Path $stateDirectory | Out-Null
   $runtimeId = "fault-$caseName"
@@ -316,7 +359,7 @@ function Invoke-AgentFaultCase {
     }
   } finally {
     if (Test-Path $stateDirectory) {
-      Remove-Item -Recurse -Force $stateDirectory
+      Remove-WorkbenchState $stateDirectory
     }
   }
 }
@@ -339,7 +382,7 @@ foreach ($testFile in $workbenchTests) {
 
 $agentState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-$env:GITHUB_RUN_ID"
 if (Test-Path $agentState) {
-  Remove-Item -Recurse -Force $agentState
+  Remove-WorkbenchState $agentState
 }
 New-Item -ItemType Directory -Force -Path $agentState | Out-Null
 
@@ -348,14 +391,14 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
 
     $lockState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-lock-$env:GITHUB_RUN_ID"
     if (Test-Path $lockState) {
-      Remove-Item -Recurse -Force $lockState
+      Remove-WorkbenchState $lockState
     }
     New-Item -ItemType Directory -Force -Path $lockState | Out-Null
     try {
       Test-WorkbenchAgentLock "agent-lock-test" $lockState
     } finally {
       if (Test-Path $lockState) {
-        Remove-Item -Recurse -Force $lockState
+        Remove-WorkbenchState $lockState
       }
     }
 
@@ -364,7 +407,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
       $providerState = Join-Path $env:RUNNER_TEMP `
         "pragtical-workbench-agent-provider-$env:GITHUB_RUN_ID"
       if (Test-Path $providerState) {
-        Remove-Item -Recurse -Force $providerState
+        Remove-WorkbenchState $providerState
       }
       New-Item -ItemType Directory -Force -Path $providerState | Out-Null
       $previousCodexExecutable = $env:WORKBENCH_CODEX_EXECUTABLE
@@ -379,7 +422,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
           $env:WORKBENCH_CODEX_EXECUTABLE = $previousCodexExecutable
         }
         if (Test-Path $providerState) {
-          Remove-Item -Recurse -Force $providerState
+          Remove-WorkbenchState $providerState
         }
       }
     } else {
@@ -390,7 +433,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
 
   $terminalState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-terminal-$env:GITHUB_RUN_ID"
   if (Test-Path $terminalState) {
-    Remove-Item -Recurse -Force $terminalState
+    Remove-WorkbenchState $terminalState
   }
   New-Item -ItemType Directory -Force -Path $terminalState | Out-Null
   try {
@@ -398,13 +441,13 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
       "data/plugins/workbench/tests/agent_terminal.lua"
   } finally {
     if (Test-Path $terminalState) {
-      Remove-Item -Recurse -Force $terminalState
+      Remove-WorkbenchState $terminalState
     }
   }
 
   $stressState = Join-Path $env:RUNNER_TEMP "pragtical-workbench-agent-stress-$env:GITHUB_RUN_ID"
   if (Test-Path $stressState) {
-    Remove-Item -Recurse -Force $stressState
+    Remove-WorkbenchState $stressState
   }
   New-Item -ItemType Directory -Force -Path $stressState | Out-Null
   try {
@@ -412,7 +455,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
       "data/plugins/workbench/tests/agent_stress.lua"
   } finally {
     if (Test-Path $stressState) {
-      Remove-Item -Recurse -Force $stressState
+      Remove-WorkbenchState $stressState
     }
   }
 
@@ -426,7 +469,7 @@ New-Item -ItemType Directory -Force -Path $agentState | Out-Null
   Invoke-AgentFaultCase "after_stopped_commit" "stop"
 } finally {
   if (Test-Path $agentState) {
-    Remove-Item -Recurse -Force $agentState
+    Remove-WorkbenchState $agentState
   }
 }
 
