@@ -75,6 +75,20 @@ rename this directory however you wish.
 
 For more detailed instructions visit: https://pragtical.dev/docs/setup/building
 
+### Web preview
+
+The web target uses the pinned Emscripten SDK in `.emscripten-version`:
+
+```sh
+source /path/to/emsdk/emsdk_env.sh
+./scripts/build-web.sh
+./scripts/serve-web.sh
+```
+
+See [docs/web.md](docs/web.md) for the browser capability boundary and current
+limitations. The preview must be served over HTTP; it does not load correctly
+from `file://`.
+
 ## Contributing
 
 Pull requests to improve or modify the editor itself are welcome.

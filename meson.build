@@ -119,6 +119,11 @@ renderer_backend = get_option('renderer_backend')
 pragtical_cargs += '-DPRAGTICAL_DEFAULT_RENDERER_BACKEND="@0@"'.format(renderer_backend)
 pragtical_cargs += '-DPRAGTICAL_HAVE_SDL_RENDERER'
 pragtical_cargs += '-DPRAGTICAL_HAVE_SDL_GPU'
+if host_machine.system() == 'emscripten'
+    # Keep the browser target explicitly single-threaded and let Lua/plugin
+    # code query the same capability boundary at runtime.
+    pragtical_cargs += '-DPRAGTICAL_WEB'
+endif
 if get_option('arch_tuple') != ''
     arch_tuple = get_option('arch_tuple')
 else
@@ -289,20 +294,6 @@ if not get_option('source-only')
             sdl_build_type = 'Debug'
         endif
 
-        sdl_x11 = 'ON'
-        sdl_wayland = 'ON'
-        if host_machine.system() == 'windows' or host_machine.system() == 'darwin'
-            sdl_x11 = 'OFF'
-            sdl_wayland = 'OFF'
-        endif
-
-        sdl_opengl = 'ON'
-        sdl_opengles = 'ON'
-        if host_machine.system() == 'windows'
-            sdl_opengl = 'OFF'
-            sdl_opengles = 'OFF'
-        endif
-
         sdl_osx_deploy_target = '10.11'
         if host_machine.system() == 'darwin' and target_machine.cpu_family() == 'aarch64'
             sdl_osx_deploy_target = '11.0'
@@ -310,31 +301,74 @@ if not get_option('source-only')
 
         sdl_options = cmake.subproject_options()
 
-        sdl_vulkan = 'OFF'
-        sdl_metal = 'OFF'
-        if host_machine.system() == 'darwin'
-            sdl_metal = 'ON'
+        if host_machine.system() == 'emscripten'
+            # SDL's browser video backend is the only platform integration
+            # needed by the surface renderer. Everything else either pulls in
+            # unavailable host libraries or implies a desktop capability.
+            sdl_options.add_cmake_defines({
+                'CMAKE_BUILD_TYPE': sdl_build_type,
+                'CMAKE_POSITION_INDEPENDENT_CODE': 'ON',
+                'CMAKE_EXECUTABLE_SUFFIX': '.js',
+                # Meson's generated CMake toolchain file sets the compiler and
+                # system name but does not load Emscripten's platform module.
+                # SDL uses this variable to select its generic no-thread path.
+                'EMSCRIPTEN': 'ON',
+                'SDL_DEPS_SHARED': 'OFF', 'SDL_SHARED': 'OFF', 'SDL_STATIC': 'ON',
+                'SDL_AUDIO': 'OFF', 'SDL_VIDEO': 'ON', 'SDL_RENDER': 'OFF', 'SDL_GPU': 'OFF',
+                'SDL_CAMERA': 'OFF', 'SDL_JOYSTICK': 'OFF', 'SDL_HAPTIC': 'OFF',
+                'SDL_HIDAPI': 'OFF', 'SDL_DIALOG': 'OFF', 'SDL_POWER': 'OFF',
+                'SDL_SENSOR': 'OFF', 'SDL_TRAY': 'OFF', 'SDL_NOTIFICATION': 'OFF',
+                'SDL_VULKAN': 'OFF', 'SDL_METAL': 'OFF', 'SDL_OPENGL': 'OFF', 'SDL_OPENGLES': 'OFF',
+                'SDL_PTHREADS': 'OFF', 'SDL_ASSEMBLY': 'OFF',
+                'SDL_DBUS': 'OFF', 'SDL_IBUS': 'OFF', 'SDL_LIBUDEV': 'OFF',
+                'SDL_PIPEWIRE': 'OFF', 'SDL_X11': 'OFF', 'SDL_WAYLAND': 'OFF',
+                'SDL_DIRECTX': 'OFF', 'SDL_TESTS': 'OFF', 'SDL_TEST_LIBRARY': 'OFF',
+                'SDL_EXAMPLES': 'OFF', 'SDL_INSTALL': 'OFF',
+                'SDL_SYSTEM_ICONV': 'OFF', 'SDL_LIBICONV': 'OFF',
+                'SDL_EMSCRIPTEN_PERSISTENT_PATH': '',
+                'SDL_VENDOR_INFO': 'pragtical'
+            })
         else
-            sdl_vulkan = 'ON'
-        endif
+            sdl_x11 = 'ON'
+            sdl_wayland = 'ON'
+            if host_machine.system() == 'windows' or host_machine.system() == 'darwin'
+                sdl_x11 = 'OFF'
+                sdl_wayland = 'OFF'
+            endif
 
-        sdl_options.add_cmake_defines({
-            'CMAKE_BUILD_TYPE': sdl_build_type,
-            'CMAKE_POSITION_INDEPENDENT_CODE': 'ON',
-            'CMAKE_OSX_DEPLOYMENT_TARGET': sdl_osx_deploy_target,
-            'SDL_DEPS_SHARED': 'ON', 'SDL_SHARED': 'OFF', 'SDL_STATIC': 'ON',
-            'SDL_DBUS': 'ON', 'SDL_IBUS': 'ON', 'SDL_AUDIO': 'OFF',
-            'SDL_GPU': 'ON', 'SDL_RPATH': 'OFF', 'SDL_PIPEWIRE': 'OFF',
-            'SDL_CAMERA': 'OFF', 'SDL_JOYSTICK': 'OFF', 'SDL_HAPTIC': 'OFF',
-            'SDL_HIDAPI': 'OFF', 'SDL_DIALOG': 'ON', 'SDL_POWER': 'OFF',
-            'SDL_SENSOR': 'OFF', 'SDL_VULKAN': sdl_vulkan, 'SDL_METAL': sdl_metal, 'SDL_LIBUDEV': 'ON',
-            'SDL_X11': sdl_x11, 'SDL_WAYLAND': sdl_wayland,
-            'SDL_TESTS': 'OFF', 'SDL_X11_XTEST': 'OFF',
-            'SDL_OPENGL': sdl_opengl, 'SDL_OPENGLES': sdl_opengles,
-            'SDL_DIRECTX': 'ON', 'SDL_EXAMPLES': 'OFF',
-            'SDL_SYSTEM_ICONV': 'ON', 'SDL_LIBICONV': 'ON',
-            'SDL_VENDOR_INFO': 'pragtical'
-        })
+            sdl_opengl = 'ON'
+            sdl_opengles = 'ON'
+            if host_machine.system() == 'windows'
+                sdl_opengl = 'OFF'
+                sdl_opengles = 'OFF'
+            endif
+
+            sdl_vulkan = 'OFF'
+            sdl_metal = 'OFF'
+            if host_machine.system() == 'darwin'
+                sdl_metal = 'ON'
+            else
+                sdl_vulkan = 'ON'
+            endif
+
+            sdl_options.add_cmake_defines({
+                'CMAKE_BUILD_TYPE': sdl_build_type,
+                'CMAKE_POSITION_INDEPENDENT_CODE': 'ON',
+                'CMAKE_OSX_DEPLOYMENT_TARGET': sdl_osx_deploy_target,
+                'SDL_DEPS_SHARED': 'ON', 'SDL_SHARED': 'OFF', 'SDL_STATIC': 'ON',
+                'SDL_DBUS': 'ON', 'SDL_IBUS': 'ON', 'SDL_AUDIO': 'OFF',
+                'SDL_GPU': 'ON', 'SDL_RPATH': 'OFF', 'SDL_PIPEWIRE': 'OFF',
+                'SDL_CAMERA': 'OFF', 'SDL_JOYSTICK': 'OFF', 'SDL_HAPTIC': 'OFF',
+                'SDL_HIDAPI': 'OFF', 'SDL_DIALOG': 'ON', 'SDL_POWER': 'OFF',
+                'SDL_SENSOR': 'OFF', 'SDL_VULKAN': sdl_vulkan, 'SDL_METAL': sdl_metal, 'SDL_LIBUDEV': 'ON',
+                'SDL_X11': sdl_x11, 'SDL_WAYLAND': sdl_wayland,
+                'SDL_TESTS': 'OFF', 'SDL_X11_XTEST': 'OFF',
+                'SDL_OPENGL': sdl_opengl, 'SDL_OPENGLES': sdl_opengles,
+                'SDL_DIRECTX': 'ON', 'SDL_EXAMPLES': 'OFF',
+                'SDL_SYSTEM_ICONV': 'ON', 'SDL_LIBICONV': 'ON',
+                'SDL_VENDOR_INFO': 'pragtical'
+            })
+        endif
 
         if host_machine.system() == 'windows'
             # warn about the implications of missing iconv

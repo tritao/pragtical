@@ -371,6 +371,19 @@ function system.sleep(seconds) end
 ---@param command string The command to execute.
 function system.exec(command) end
 
+---Open a URL using the host platform.
+---On web builds this delegates to `window.open` and may be blocked unless
+---called from a user gesture.
+---@param url string
+---@return boolean requested Whether the request was issued (popup blocking is browser-controlled).
+function system.open_url(url) end
+
+---Check whether a platform capability is available.
+---Unknown capabilities return false on web builds and true on native builds.
+---@param capability string
+---@return boolean supported
+function system.has_capability(capability) end
+
 ---
 ---Generates a matching score depending on how well the value of the
 ---given needle compares to that of the value in the haystack.

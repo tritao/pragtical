@@ -1,5 +1,7 @@
 build*/
 .build*/
+dist/
+*.pragtical-web-generated
 submodules/
 subprojects/*/
 subprojects/.wraplock

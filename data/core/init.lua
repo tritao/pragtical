@@ -455,6 +455,9 @@ end
 
 function core.init()
   DEFAULT_SCALE, DEFAULT_FPS = system.get_display_info()
+  -- Some browser display implementations do not expose a refresh rate.
+  -- Keep the frame scheduler finite when SDL reports zero.
+  if DEFAULT_FPS <= 0 then DEFAULT_FPS = 60 end
   SCALE = tonumber(os.getenv("PRAGTICAL_SCALE")) or DEFAULT_SCALE
 
   -- load config after scale detection for flags that depend on it
@@ -1017,7 +1020,7 @@ function core.load_plugins()
     elseif config.plugins[plugin.name] ~= false then
       local start = system.get_time()
       local ok, loaded_plugin = core.try(plugin.load, plugin)
-      if ok then
+      if ok and loaded_plugin ~= false then
         local plugin_version = ""
         if plugin.version_string and  plugin.version_string ~= MOD_VERSION_STRING then
           plugin_version = "["..plugin.version_string.."]"
@@ -1029,9 +1032,15 @@ function core.load_plugins()
           common.dirname(plugin.file),
           (system.get_time() - start) * 1000
         )
-        if config.plugins[plugin.name].onload then
+        if config.plugins[plugin.name]
+          and config.plugins[plugin.name].onload then
           core.try(config.plugins[plugin.name].onload, loaded_plugin)
         end
+      elseif ok then
+        core.log_quiet(
+          "Skipped plugin %q because it is unavailable on this platform",
+          plugin.name
+        )
       else
         no_errors = false
       end
@@ -2197,6 +2206,11 @@ end
 
 local last_file_dialog_tag = 0
 local function open_dialog(type, window, callback, options)
+  if not system.has_capability("filesystem_picker") then
+    callback("error", "system file pickers are not available in web builds")
+    return
+  end
+
   local types = {
     ["openfile"] = system.open_file_dialog,
     ["opendirectory"] = system.open_directory_dialog,

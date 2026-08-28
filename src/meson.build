@@ -5,10 +5,6 @@ pragtical_sources = [
     'api/renwindow.c',
     'api/regex.c',
     'api/system.c',
-    'api/process.c',
-    'api/channel.c',
-    'api/thread.c',
-    'api/shmem.c',
     'api/canvas.c',
     'api/utf8.c',
     'api/tokenizer.c',
@@ -35,8 +31,18 @@ pragtical_sources = [
 
 if host_machine.system() == 'emscripten'
     pragtical_cargs += '-DPRAGTICAL_NO_LOCAL_TRANSPORT'
+    # Keep the API modules present so Lua plugins receive a predictable,
+    # descriptive unsupported result instead of an unresolved symbol or a
+    # browser-side abort.
+    pragtical_sources += files('api/process_web.c', 'api/thread_web.c', 'api/shmem_web.c')
 else
-    pragtical_sources += 'api/local_transport.c'
+    pragtical_sources += files(
+        'api/process.c',
+        'api/channel.c',
+        'api/thread.c',
+        'api/shmem.c',
+        'api/local_transport.c',
+    )
 endif
 
 if sqlite_enabled
@@ -248,6 +254,9 @@ executable('pragtical',
     c_args: pragtical_cargs,
     objc_args: pragtical_cargs,
     link_args: pragtical_link_args,
+    link_depends: host_machine.system() == 'emscripten'
+        ? meson.current_build_dir() / '..' / '.pragtical-web-data.stamp'
+        : [],
     link_whole: pragtical_link_whole,
     install_dir: pragtical_bindir,
     install: true,

@@ -80,6 +80,56 @@ jobs:
             build*/meson-logs/**
             build*/meson-private/coredata.dat
 
+  build_web:
+    name: Web (Emscripten)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.20
+      - name: Python Setup
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.11
+      - name: Install build tools
+        run: python -m pip install meson ninja
+      - name: Build web distribution
+        run: bash scripts/build-web.sh
+      - name: Install browser smoke-test dependencies
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Run browser smoke test
+        run: |
+          bash scripts/serve-web.sh dist/web 8000 > web-server.log 2>&1 &
+          web_server_pid=$!
+          trap 'kill "$web_server_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          python scripts/test-web.py http://127.0.0.1:8000/
+      - name: Upload browser smoke-test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-browser-diagnostics
+          if-no-files-found: ignore
+          path: web-server.log
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pragtical-web
+          path: dist/web
+
   build_macos:
     name: macOS
     strategy:
