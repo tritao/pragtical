@@ -229,7 +229,7 @@ function Test-FragmentedWorkbenchTransport {
   [uint32]$hash = 2166136261
   foreach ($byte in [System.Text.Encoding]::UTF8.GetBytes($Endpoint)) {
     $hash = [uint32]($hash -bxor [uint32]$byte)
-    $hash = [uint32]($hash * 16777619)
+    $hash = [uint32](([uint64]$hash * 16777619) % 4294967296)
   }
   $pipeName = "\\.\pipe\pragtical-workbench-{0:x8}" -f $hash
   $pipe = [System.IO.Pipes.NamedPipeClientStream]::new(
