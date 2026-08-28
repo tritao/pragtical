@@ -1,5 +1,10 @@
 local common = require "core.common"
 
+-- Data directories can be used briefly with an older native executable while
+-- rebuilding or during an upgrade. Native historically exposed every
+-- capability, so preserve that behavior when the query API is unavailable.
+system.has_capability = system.has_capability or function() return true end
+
 ---Configuration options.
 ---@class core.config
 local config = {}
