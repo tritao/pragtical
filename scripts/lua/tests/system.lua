@@ -38,6 +38,7 @@ test.describe("system", function()
   end)
 
   test.test("exports the documented functions", function()
+    test.equal(system.api_version, NATIVE_API_VERSION)
     for _, name in ipairs({
       "poll_event", "wait_event", "has_pending_events", "set_cursor",
       "get_scale", "set_window_title", "set_window_mode",

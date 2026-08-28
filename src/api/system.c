@@ -1782,5 +1782,7 @@ int luaopen_system(lua_State *L) {
   lua_pushcfunction(L, f_library_gc);
   lua_setfield(L, -2, "__gc");
   luaL_newlib(L, lib);
+  lua_pushinteger(L, PRAGTICAL_NATIVE_API_VERSION);
+  lua_setfield(L, -2, "api_version");
   return 1;
 }

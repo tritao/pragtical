@@ -5,6 +5,10 @@
 ---@class system
 system = {}
 
+---Native API contract version. Startup data must require the same version.
+---@type integer
+system.api_version = 1
+
 ---@alias system.fileinfotype
 ---| "file"  # It is a file.
 ---| "dir"   # It is a directory.

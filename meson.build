@@ -11,6 +11,7 @@ project('pragtical',
 
 version = meson.project_version()
 mod_version = version.split('.')
+native_api_version = 1
 cc = meson.get_compiler('c')
 
 #===============================================================================
@@ -101,6 +102,7 @@ conf_data.set('PROJECT_ASSEMBLY_VERSION', meson.project_version() + '.0')
 conf_data.set('MOD_VERSION_MAJOR', mod_version[0])
 conf_data.set('MOD_VERSION_MINOR', mod_version[1])
 conf_data.set('MOD_VERSION_PATCH', mod_version[2])
+conf_data.set('NATIVE_API_VERSION', native_api_version)
 
 #===============================================================================
 # Compiler Settings
@@ -112,7 +114,8 @@ endif
 pragtical_includes = []
 pragtical_cargs = [
     '-DPCRE2_STATIC',
-    '-DPRAGTICAL_PROJECT_VERSION_STR="@0@"'.format(version)
+    '-DPRAGTICAL_PROJECT_VERSION_STR="@0@"'.format(version),
+    '-DPRAGTICAL_NATIVE_API_VERSION=@0@'.format(native_api_version),
 ]
 
 renderer_backend = get_option('renderer_backend')

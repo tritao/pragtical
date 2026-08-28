@@ -9,6 +9,15 @@ MOD_VERSION_MAJOR = tonumber("@MOD_VERSION_MAJOR@")
 MOD_VERSION_MINOR = tonumber("@MOD_VERSION_MINOR@")
 MOD_VERSION_PATCH = tonumber("@MOD_VERSION_PATCH@")
 MOD_VERSION_STRING = string.format("%d.%d.%d", MOD_VERSION_MAJOR, MOD_VERSION_MINOR, MOD_VERSION_PATCH)
+NATIVE_API_VERSION = tonumber("@NATIVE_API_VERSION@")
+
+if system.api_version ~= NATIVE_API_VERSION then
+  error(string.format(
+    "Pragtical native API mismatch (binary: %s, data: %d). Rebuild or reinstall Pragtical so its executable and data files match.",
+    tostring(system.api_version), NATIVE_API_VERSION
+  ), 0)
+end
+
 LUA_VERSION = tonumber(_VERSION:sub(-3))
 
 DEFAULT_FPS = 60
