@@ -103,14 +103,19 @@ function Start-WorkbenchAgent {
 }
 
 function Get-WorkbenchAgentProcessIds {
-  param([Parameter(Mandatory = $true)][string]$StateDirectory)
+  param(
+    [Parameter(Mandatory = $true)][string]$StateDirectory,
+    [Parameter(Mandatory = $true)][string]$Endpoint
+  )
 
   $normalizedStateDirectory = [System.IO.Path]::GetFullPath($StateDirectory).TrimEnd('\')
-  return @(Get-CimInstance Win32_Process -Filter "Name = 'workbench-agent.exe'" |
+  return @(Get-CimInstance Win32_Process |
     Where-Object {
-      $_.CommandLine -and
+      $_.Name -ieq 'workbench-agent.exe' -and $_.CommandLine -and (
         $_.CommandLine.IndexOf($normalizedStateDirectory,
-          [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+            [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $_.CommandLine.IndexOf($Endpoint,
+            [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
     } |
     Select-Object -ExpandProperty ProcessId)
 }
@@ -133,7 +138,7 @@ function Stop-WorkbenchAgent {
   # that outlived it. Find any agent still carrying this exact data directory
   # and terminate it before the directory is reused or removed.
   for ($attempt = 0; $attempt -lt 40; $attempt++) {
-    $remaining = @(Get-WorkbenchAgentProcessIds $Instance.StateDirectory)
+    $remaining = @(Get-WorkbenchAgentProcessIds $Instance.StateDirectory $Instance.Endpoint)
     if ($remaining.Count -eq 0) { return }
     foreach ($processId in $remaining) {
       & taskkill.exe /PID $processId /T /F | Out-Null
