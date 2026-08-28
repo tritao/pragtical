@@ -10,7 +10,7 @@ end
 
 function Server.new(transport, endpoint, registry, options)
   options = options or {}
-  options.max_frame_size = options.max_frame_size or Protocol.max_payload
+  options.max_frame_size = options.max_frame_size or Protocol.max_payload_size
   options.max_queued_bytes = options.max_queued_bytes or (8 * 1024 * 1024)
   options.max_requests_per_poll = options.max_requests_per_poll or 64
   options.max_accepts_per_poll = options.max_accepts_per_poll or 16

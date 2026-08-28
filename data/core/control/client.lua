@@ -13,7 +13,7 @@ end
 
 function Client.connect(transport, endpoint, options)
   options = options or {}
-  options.max_frame_size = options.max_frame_size or Protocol.max_payload
+  options.max_frame_size = options.max_frame_size or Protocol.max_payload_size
   options.max_queued_bytes = options.max_queued_bytes or (8 * 1024 * 1024)
   options.request_timeout = options.request_timeout or 5
   options.max_messages_per_poll = options.max_messages_per_poll or 64

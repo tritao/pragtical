@@ -25,7 +25,10 @@ test.describe("control client", function()
     function connection:close() end
 
     local fake_transport = {
-      connect = function() return connection end,
+      connect = function(_, options)
+        test.equal(options.max_frame_size, Protocol.max_payload_size)
+        return connection
+      end,
     }
     local client = assert(Client.connect(fake_transport, "fake"))
     local completed = {}
