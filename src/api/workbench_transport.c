@@ -31,6 +31,7 @@
 #define WORKBENCH_SERVER "WorkbenchTransportServer"
 #define WORKBENCH_MAX_FRAME (16u * 1024u * 1024u)
 #define WORKBENCH_PIPE_BUFFER (64u * 1024u)
+#define WORKBENCH_PIPE_INSTANCES 8
 #ifndef _WIN32
 #define WORKBENCH_ENDPOINT_MAX 108
 #else
@@ -612,7 +613,8 @@ static HANDLE create_pipe(const char *name) {
   HANDLE handle = CreateNamedPipeA(name,
     PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-    2, WORKBENCH_PIPE_BUFFER, WORKBENCH_PIPE_BUFFER, 0, &attributes);
+    WORKBENCH_PIPE_INSTANCES, WORKBENCH_PIPE_BUFFER, WORKBENCH_PIPE_BUFFER,
+    0, &attributes);
   DWORD error = GetLastError();
   LocalFree(descriptor);
   SetLastError(error);
