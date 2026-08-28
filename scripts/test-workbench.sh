@@ -25,8 +25,18 @@ if [[ ! -x "$agent" ]]; then
 fi
 
 state_root="$(mktemp -d "${TMPDIR:-/tmp}/pragtical-workbench-test.XXXXXX")"
+test_run_dir="$state_root/local-run"
+test_user_dir="$state_root/user"
+test_runtime_dir="$state_root/xdg-runtime"
 agent_pid=""
 copied_runtime=false
+
+mkdir -p -- "$test_user_dir" "$test_runtime_dir"
+chmod 700 -- "$test_user_dir" "$test_runtime_dir"
+cat >"$test_user_dir/init.lua" <<'LUA'
+local config = require "core.config"
+config.plugins.workbench = { startup = "never" }
+LUA
 
 cleanup() {
   if [[ -n "$agent_pid" ]]; then
@@ -136,9 +146,15 @@ run_test() {
   command+=("$build_dir" "test" "$test_file")
 
   if [[ -n "$endpoint" ]]; then
+    PRAGTICAL_RUN_DIR="$test_run_dir" \
+      PRAGTICAL_USERDIR="$test_user_dir" \
+      XDG_RUNTIME_DIR="$test_runtime_dir" \
     WORKBENCH_AGENT_ENDPOINT="$endpoint" \
       SDL_VIDEO_DRIVER=dummy "${command[@]}"
   else
+    PRAGTICAL_RUN_DIR="$test_run_dir" \
+      PRAGTICAL_USERDIR="$test_user_dir" \
+      XDG_RUNTIME_DIR="$test_runtime_dir" \
     SDL_VIDEO_DRIVER=dummy "${command[@]}"
   fi
   copied_runtime=true
@@ -153,6 +169,9 @@ run_agent_provider_test() {
     command+=("-keep")
   fi
   command+=("$build_dir" "test" "data/plugins/workbench/tests/agent_provider.lua")
+  PRAGTICAL_RUN_DIR="$test_run_dir" \
+    PRAGTICAL_USERDIR="$test_user_dir" \
+    XDG_RUNTIME_DIR="$test_runtime_dir" \
   WORKBENCH_AGENT_ENDPOINT="$endpoint" \
     WORKBENCH_CODEX_EXECUTABLE="$executable" \
     SDL_VIDEO_DRIVER=dummy "${command[@]}"
@@ -172,6 +191,9 @@ run_fault_test() {
     command+=("-keep")
   fi
   command+=("$build_dir" "test" "data/plugins/workbench/tests/agent_fault.lua")
+  PRAGTICAL_RUN_DIR="$test_run_dir" \
+    PRAGTICAL_USERDIR="$test_user_dir" \
+    XDG_RUNTIME_DIR="$test_runtime_dir" \
   WORKBENCH_AGENT_ENDPOINT="$endpoint" \
     WORKBENCH_FAULT_PHASE="$phase" \
     WORKBENCH_FAULT_ACTION="$action" \

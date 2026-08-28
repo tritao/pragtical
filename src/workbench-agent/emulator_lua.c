@@ -1,6 +1,7 @@
 #include "api/api.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "terminal_emulator.h"
 
@@ -8,7 +9,26 @@
 
 typedef struct {
   terminal_emulator_t *emulator;
+  char *input;
+  size_t input_length;
+  size_t input_capacity;
 } workbench_emulator;
+
+static void emulator_input(const char *data, int length, void *user_data) {
+  workbench_emulator *emulator = user_data;
+  if (!emulator || !data || length <= 0) return;
+  size_t required = emulator->input_length + (size_t)length;
+  if (required > emulator->input_capacity) {
+    size_t capacity = emulator->input_capacity ? emulator->input_capacity : 256;
+    while (capacity < required) capacity *= 2;
+    char *input = realloc(emulator->input, capacity);
+    if (!input) return;
+    emulator->input = input;
+    emulator->input_capacity = capacity;
+  }
+  memcpy(emulator->input + emulator->input_length, data, (size_t)length);
+  emulator->input_length = required;
+}
 
 static workbench_emulator *check_emulator(lua_State *L) {
   workbench_emulator *emulator = luaL_checkudata(L, 1, WORKBENCH_EMULATOR);
@@ -23,6 +43,10 @@ static int emulator_gc(lua_State *L) {
     terminal_emulator_free(emulator->emulator);
     emulator->emulator = NULL;
   }
+  free(emulator->input);
+  emulator->input = NULL;
+  emulator->input_length = 0;
+  emulator->input_capacity = 0;
   return 0;
 }
 
@@ -48,7 +72,9 @@ static int emulator_new(lua_State *L) {
   if (!native) return luaL_error(L, "failed to create Workbench emulator");
 
   workbench_emulator *emulator = lua_newuserdata(L, sizeof(*emulator));
+  memset(emulator, 0, sizeof(*emulator));
   emulator->emulator = native;
+  terminal_emulator_set_input_callback(native, emulator_input, emulator);
   luaL_setmetatable(L, WORKBENCH_EMULATOR);
   return 1;
 }
@@ -77,6 +103,13 @@ static int emulator_checkpoint(lua_State *L) {
   return 1;
 }
 
+static int emulator_take_input(lua_State *L) {
+  workbench_emulator *emulator = check_emulator(L);
+  lua_pushlstring(L, emulator->input, emulator->input_length);
+  emulator->input_length = 0;
+  return 1;
+}
+
 static int emulator_restore_checkpoint(lua_State *L) {
   workbench_emulator *emulator = check_emulator(L);
   size_t length;
@@ -94,6 +127,10 @@ static int emulator_close(lua_State *L) {
   workbench_emulator *emulator = check_emulator(L);
   terminal_emulator_free(emulator->emulator);
   emulator->emulator = NULL;
+  free(emulator->input);
+  emulator->input = NULL;
+  emulator->input_length = 0;
+  emulator->input_capacity = 0;
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -102,6 +139,7 @@ int luaopen_workbench_emulator(lua_State *L) {
   static const luaL_Reg methods[] = {
     { "__gc", emulator_gc },
     { "feed", emulator_feed },
+    { "take_input", emulator_take_input },
     { "checkpoint", emulator_checkpoint },
     { "restore_checkpoint", emulator_restore_checkpoint },
     { "close", emulator_close },
