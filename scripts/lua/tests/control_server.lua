@@ -29,7 +29,10 @@ local function fake_transport(connection)
   end
   function listening:close() self.closed = true end
   return {
-    listen = function() return listening end,
+    listen = function(_, options)
+      test.equal(options.max_frame_size, Protocol.max_payload_size)
+      return listening
+    end,
   }, listening
 end
 
