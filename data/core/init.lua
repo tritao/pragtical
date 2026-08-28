@@ -18,6 +18,7 @@ local ImageView
 local MarkdownView
 local Doc
 local Project
+local Control
 
 ---Core functionality.
 ---@class core
@@ -105,6 +106,7 @@ function core.add_project(project)
   if not duplicate then
     table.insert(core.projects, project)
     core.redraw = true
+    if core.control then core.control:update_instance() end
   end
   return project
 end
@@ -238,6 +240,50 @@ local function strip_trailing_slash(filename)
     return filename:sub(1, -2)
   end
   return filename
+end
+
+local function parse_launch_arguments(args)
+  local paths = {}
+  local options = {}
+  local after_separator = false
+  local index = 2
+  while index <= #args do
+    local argument = args[index]
+    local value
+    if index == 2 and cli and cli.commands and cli.commands[argument] then
+      options.no_forward = true
+    elseif argument == "--" then
+      after_separator = true
+    elseif argument == "--new-instance" then
+      options.new_instance = true
+    elseif argument == "--reuse-instance" then
+      options.reuse_instance = true
+    elseif argument == "--add-project" then
+      options.directory_mode = "add"
+    elseif argument == "--change-project" then
+      options.directory_mode = "change"
+    elseif argument == "--instance" then
+      index = index + 1
+      options.instance_id = args[index]
+    elseif argument:match("^%-%-instance=") then
+      options.instance_id = argument:match("^%-%-instance=(.*)$")
+    elseif not after_separator and argument:sub(1, 1) == "-" then
+      -- Other CLI flags are consumed by core.cli. They are not paths.
+    else
+      value = argument
+      if value and not value:match("^-psn") then paths[#paths + 1] = value end
+    end
+    index = index + 1
+  end
+  return paths, options
+end
+
+local function absolute_launch_path(path)
+  local absolute = system.absolute_path(path)
+  if absolute then return common.normalize_volume(absolute) end
+  local normalized = common.normalize_path(path)
+  if common.is_absolute_path(normalized) then return common.normalize_volume(normalized) end
+  return common.normalize_volume(system.getcwd() .. PATHSEP .. normalized)
 end
 
 
@@ -434,6 +480,7 @@ function core.init()
   ImageView = require "core.imageview"
   MarkdownView = require "core.markdownview"
   Doc = require "core.doc"
+  Control = require "core.control"
 
   -- apply to default color scheme
   map_new_syntax_colors()
@@ -465,35 +512,52 @@ function core.init()
 
   local project_dir = core.recent_projects[1] or "."
   local project_dir_explicit = false
+  local launch_paths, launch_options = parse_launch_arguments(ARGS)
   local files = {}
   if not RESTARTED then
-    for i = 2, #ARGS do
-      local arg_filename = strip_trailing_slash(ARGS[i])
+    for _, raw_path in ipairs(launch_paths) do
+      local arg_filename = strip_trailing_slash(raw_path)
       local info = system.get_file_info(arg_filename) or {}
+      local absolute = absolute_launch_path(arg_filename)
       if info.type == "dir" then
-        project_dir = arg_filename
+        project_dir = absolute
         project_dir_explicit = true
       else
-        -- on macOS we can get an argument like "-psn_0_52353" that we just ignore.
-        if not ARGS[i]:match("^-psn") then
-          local filename = common.normalize_path(arg_filename)
-          local abs_filename = system.absolute_path(filename or "")
-          local file_abs
-          if filename == abs_filename then
-            file_abs = abs_filename
-          else
-            file_abs = system.absolute_path(".") .. PATHSEP .. filename
-          end
-          if file_abs then
-            table.insert(files, file_abs)
-            project_dir = file_abs:match("^(.+)[/\\].+$")
-          end
-        end
+        table.insert(files, absolute)
+        project_dir = absolute:match("^(.+)[/\\].+$") or project_dir
       end
     end
   end
   -- Ensure that we have a user directory.
   core.ensure_user_directory()
+
+  if not RESTARTED and not launch_options.no_forward and not launch_options.new_instance
+      and #launch_paths > 0 then
+    local launch = require "core.control.launch"
+    launch_options.target_path = absolute_launch_path(launch_paths[1])
+    local forwarded, accepted = launch.forward(
+      (function()
+        local result = {}
+        for _, path in ipairs(launch_paths) do
+          result[#result + 1] = absolute_launch_path(path)
+        end
+        return result
+      end)(), launch_options)
+    if forwarded then os.exit(0) end
+    if next(accepted) then
+      local remaining = {}
+      for index, path in ipairs(launch_paths) do
+        if not accepted[index] then remaining[#remaining + 1] = path end
+      end
+      launch_paths = remaining
+      files = {}
+      for _, path in ipairs(launch_paths) do
+        local absolute = absolute_launch_path(path)
+        local info = system.get_file_info(path) or {}
+        if info.type ~= "dir" then files[#files + 1] = absolute end
+      end
+    end
+  end
   core.trusted_projects = load_trusted_projects()
 
   --Set the maximum fps from display refresh rate.
@@ -568,6 +632,14 @@ function core.init()
     end
     project_dir_abs = system.absolute_path(".")
     local status, err = pcall(core.set_project, project_dir_abs)
+  end
+
+  -- Publish the control endpoint before plugin initialization so a second
+  -- launch can queue its requests while this instance finishes starting.
+  core.control = Control.new()
+  local control_started, control_error = core.control:start()
+  if not control_started and control_error ~= "unsupported" then
+    core.log_quiet("Local control service unavailable: %s", tostring(control_error))
   end
 
   -- Load core and user plugins giving preference to user ones with same name.
@@ -752,6 +824,7 @@ function core.exit(quit_fn, force)
     core.delete_temp_files()
     while #core.projects > 1 do core.remove_project(core.projects[#core.projects]) end
     save_session()
+    if core.control then core.control:stop(); core.control = nil end
     quit_fn()
   else
     core.confirm_close_docs(core.docs, core.exit, quit_fn, true)
@@ -1998,6 +2071,8 @@ function core.run_step()
   local now     = system.get_time()
   local uncapped = config.draw_stats == "uncapped"
   core.frame_start = now
+
+  if core.control then core.control:poll() end
 
   -- start a new 1s cycle
   if core.frame_start >= cycle_end_time then

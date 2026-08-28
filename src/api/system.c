@@ -770,7 +770,7 @@ static int f_get_file_info(lua_State *L) {
   lua_pushstring(L, data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ? "dir" : "file");
   lua_setfield(L, -2, "type");
 
-  lua_pushboolean(L, data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+  lua_pushboolean(L, data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
   lua_setfield(L, -2, "symlink");
 #else
   struct stat s;
@@ -808,11 +808,10 @@ static int f_get_file_info(lua_State *L) {
   lua_pushnumber(L, mtime);
   lua_setfield(L, -2, "modified");
 
-  if (S_ISDIR(s.st_mode)) {
-    if (lstat(path, &s) == 0) {
-      lua_pushboolean(L, S_ISLNK(s.st_mode));
-      lua_setfield(L, -2, "symlink");
-    }
+  struct stat link_info;
+  if (lstat(path, &link_info) == 0) {
+    lua_pushboolean(L, S_ISLNK(link_info.st_mode));
+    lua_setfield(L, -2, "symlink");
   }
 #endif
   return 1;
@@ -889,7 +888,7 @@ static int f_mkdir(lua_State *L) {
   int err = _wmkdir(wpath);
   SDL_free(wpath);
 #else
-  int err = mkdir(path, S_IRUSR|S_IWUSR|S_IXUSR|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH);
+  int err = mkdir(path, S_IRUSR|S_IWUSR|S_IXUSR);
 #endif
   if (err < 0) {
     lua_pushboolean(L, 0);

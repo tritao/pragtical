@@ -27,7 +27,7 @@
 #endif
 
 int luaopen_sqlite(lua_State *L);
-int luaopen_workbench_transport(lua_State *L);
+int luaopen_local_transport(lua_State *L);
 int luaopen_workbench_runtime(lua_State *L);
 int luaopen_workbench_emulator(lua_State *L);
 #ifdef PRAGTICAL_NET
@@ -455,7 +455,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   register_module(L, "sqlite", luaopen_sqlite);
-  register_module(L, "workbench_transport", luaopen_workbench_transport);
+  register_module(L, "local_transport", luaopen_local_transport);
   register_module(L, "workbench_runtime", luaopen_workbench_runtime);
   register_module(L, "workbench_emulator", luaopen_workbench_emulator);
 #ifdef PRAGTICAL_NET

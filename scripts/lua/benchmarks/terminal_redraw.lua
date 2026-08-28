@@ -18,7 +18,6 @@ end
 config.auto_fps = false
 config.draw_stats = "uncapped"
 config.fps = 1000
-config.plugins.ipc.single_instance = false
 config.plugins.terminal.term = "xterm-256color"
 config.plugins.terminal.shell = "/bin/sh"
 config.plugins.terminal.arguments = { "-c", [[

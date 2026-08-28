@@ -13,7 +13,12 @@ int luaopen_encoding(lua_State* L);
 int luaopen_diff(lua_State *L);
 int luaopen_canvas(lua_State* L);
 int luaopen_tokenizer(lua_State *L);
-int luaopen_workbench_transport(lua_State *L);
+#ifndef PRAGTICAL_NO_LOCAL_TRANSPORT
+int luaopen_local_transport(lua_State *L);
+#define LUA_LOCAL_TRANSPORT { "local_transport", luaopen_local_transport },
+#else
+#define LUA_LOCAL_TRANSPORT
+#endif
 
 #ifdef PRAGTICAL_SQLITE
   int luaopen_sqlite(lua_State* L);
@@ -71,7 +76,7 @@ static const luaL_Reg libs[] = {
   { "diff",       luaopen_diff       },
   { "canvas",     luaopen_canvas     },
   { "tokenizer",  luaopen_tokenizer  },
-  { "workbench_transport", luaopen_workbench_transport },
+  LUA_LOCAL_TRANSPORT
   LUA_SQLITE
   LUA_NET
   LUA_REPL
@@ -82,6 +87,7 @@ static const luaL_Reg libs[] = {
 #undef LUA53_COMPATIBILITY
 #undef LUABIT_COMPATIBILITY
 #undef LUA_SQLITE
+#undef LUA_LOCAL_TRANSPORT
 
 void api_load_libs(lua_State *L) {
   for (int i = 0; libs[i].name; i++)

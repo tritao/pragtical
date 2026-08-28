@@ -27,6 +27,7 @@ C API in the four namespaces that follow:
 * [dirmonitor](api/dirmonitor.lua)
 * [encoding](api/encoding.lua)
 * [shmem](api/shmem.lua)
+* [local_transport](api/local_transport.lua)
 * [thread](api/thread.lua)
 * [canvas](api/canvas.lua)
 
