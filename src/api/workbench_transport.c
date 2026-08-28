@@ -573,12 +573,40 @@ static int pipe_name(const char *endpoint, char *name, size_t capacity) {
     && strlen(name) < capacity;
 }
 
-static HANDLE create_pipe(const char *name) {
+static PSECURITY_DESCRIPTOR create_pipe_security_descriptor(void) {
+  HANDLE token = NULL;
+  PTOKEN_USER user = NULL;
+  LPSTR sid = NULL;
   PSECURITY_DESCRIPTOR descriptor = NULL;
+  DWORD user_length = 0;
+
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    GetTokenInformation(token, TokenUser, NULL, 0, &user_length);
+    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+      user = malloc(user_length);
+      if (user && GetTokenInformation(token, TokenUser, user, user_length,
+          &user_length) && ConvertSidToStringSidA(user->User.Sid, &sid)) {
+        char security[256];
+        int length = snprintf(security, sizeof(security),
+          "D:P(A;;GA;;;%s)", sid);
+        if (length > 0 && (size_t)length < sizeof(security))
+          ConvertStringSecurityDescriptorToSecurityDescriptorA(security,
+            SDDL_REVISION_1, &descriptor, NULL);
+      }
+    }
+  }
+
+  if (sid) LocalFree(sid);
+  free(user);
+  if (token) CloseHandle(token);
+  return descriptor;
+}
+
+static HANDLE create_pipe(const char *name) {
+  PSECURITY_DESCRIPTOR descriptor = create_pipe_security_descriptor();
   SECURITY_ATTRIBUTES attributes = {0};
   attributes.nLength = sizeof(attributes);
-  if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
-      "D:P(A;;GA;;;CO)", SDDL_REVISION_1, &descriptor, NULL))
+  if (!descriptor)
     return INVALID_HANDLE_VALUE;
   attributes.lpSecurityDescriptor = descriptor;
   HANDLE handle = CreateNamedPipeA(name,
