@@ -375,7 +375,7 @@ function system.exec(command) end
 ---On web builds this delegates to `window.open` and may be blocked unless
 ---called from a user gesture.
 ---@param url string
----@return boolean success
+---@return boolean requested Whether the request was issued (popup blocking is browser-controlled).
 function system.open_url(url) end
 
 ---Check whether a platform capability is available.

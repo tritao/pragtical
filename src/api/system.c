@@ -38,7 +38,15 @@
   #include <emscripten/emscripten.h>
   EM_JS(int, pragtical_open_url, (const char *url), {
     var target = UTF8ToString(url);
-    return window.open(target, "_blank", "noopener,noreferrer") ? 1 : 0;
+    try {
+      // Some browsers return null for a successful noopener window. The C
+      // API reports that the request was issued; popup blockers remain a
+      // browser-level decision.
+      window.open(target, "_blank", "noopener,noreferrer");
+      return 1;
+    } catch (error) {
+      return 0;
+    }
   });
 #endif
 #endif
