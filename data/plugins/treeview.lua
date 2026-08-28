@@ -75,7 +75,6 @@ function TreeView:new()
   TreeView.super.new(self)
   self.scrollable = true
   self.visible = true
-  self.init_size = true
   self.scroll_width = 0
   self.target_size = config.plugins.treeview.size
   self.show_hidden = config.plugins.treeview.show_hidden
@@ -163,6 +162,17 @@ function TreeView:get_item_height()
   return style.font:get_height() + style.padding.y
 end
 
+function TreeView:get_content_height()
+  return math.max(0, self.size.y - (self.toolbar and self.toolbar.size.y or 0))
+end
+
+function TreeView:layout_toolbar()
+  if not self.toolbar then return end
+  self.toolbar.position.x = self.position.x
+  self.toolbar.position.y = self.position.y + self.size.y - self.toolbar.size.y
+  self.toolbar.size.x = self.size.x
+end
+
 
 function TreeView:get_items(project, path, x, y, w, h)
   local dir = self:get_cached(project, path)
@@ -194,18 +204,20 @@ end
 
 function TreeView:set_selection(selection, selection_y, center, instant)
   self.selected_item = selection
+  local content_height = self:get_content_height()
   if selection and selection_y
-      and (selection_y <= 0 or selection_y >= self.size.y) then
+      and (selection_y <= 0 or selection_y >= content_height) then
     local lh = self:get_item_height()
-    if not center and selection_y >= self.size.y - lh then
-      selection_y = selection_y - self.size.y + lh
+    if not center and selection_y >= content_height - lh then
+      selection_y = selection_y - content_height + lh
     end
     if center then
-      selection_y = selection_y - (self.size.y - lh) / 2
+      selection_y = selection_y - (content_height - lh) / 2
     end
     local _, y = self:get_content_offset()
     self.scroll.to.y = selection_y - y
-    self.scroll.to.y = common.clamp(self.scroll.to.y, 0, self:get_scrollable_size() - self.size.y)
+    self.scroll.to.y = common.clamp(self.scroll.to.y, 0,
+      self:get_scrollable_size() - content_height)
     if instant then
       self.scroll.y = self.scroll.to.y
     end
@@ -272,6 +284,12 @@ end
 
 function TreeView:on_mouse_moved(px, py, ...)
   if not self.visible then return end
+  if self.toolbar and self.toolbar.visible
+      and py >= self.position.y + self.get_content_height(self) then
+    self.toolbar:on_mouse_moved(px, py, ...)
+    self.hovered_item = nil
+    return true
+  end
   if TreeView.super.on_mouse_moved(self, px, py, ...) then
     -- mouse movement handled by the View (scrollbar)
     self.hovered_item = nil
@@ -300,24 +318,31 @@ end
 
 function TreeView:on_mouse_left()
   TreeView.super.on_mouse_left(self)
+  if self.toolbar then self.toolbar:on_mouse_left() end
   self.hovered_item = nil
+end
+
+function TreeView:on_mouse_pressed(button, x, y, clicks)
+  if self.toolbar and self.toolbar.visible
+      and y >= self.position.y + self:get_content_height() then
+    return self.toolbar:on_mouse_pressed(button, x, y, clicks)
+  end
+  return TreeView.super.on_mouse_pressed(self, button, x, y, clicks)
 end
 
 
 function TreeView:update()
-  -- update width
-  local dest = self.visible and common.round(self.target_size) or 0
-  if self.init_size then
-    self.size.x = dest
-    self.init_size = false
-  elseif self.size.x ~= dest then
-    self:move_towards(self.size, "x", dest, nil, "treeview")
-    -- round to allow constant positioning of slibing elements on resize
-    self.size.x = common.round(self.size.x)
-    if math.abs(dest - self.size.x) < 2 then self.size.x = dest end
+  if self.toolbar then
+    self.toolbar.size.x = self.size.x
+    self.toolbar:update()
+    self:layout_toolbar()
   end
 
   if self.size.x == 0 or self.size.y == 0 or not self.visible then return end
+
+  local content_height = self:get_content_height()
+  local full_height = self.size.y
+  self.size.y = content_height
 
   local duration = system.get_time() - self.tooltip.begin
   if self.hovered_item and self.tooltip.x and duration > tooltip_delay then
@@ -357,6 +382,8 @@ function TreeView:update()
   end
 
   TreeView.super.update(self)
+  self.size.y = full_height
+  self:layout_toolbar()
 end
 
 
@@ -468,6 +495,8 @@ end
 
 function TreeView:draw()
   if not self.visible then return end
+  local full_height = self.size.y
+  self.size.y = self:get_content_height()
   self:draw_background(style.background2)
   local _y, _h = self.position.y, self.size.y
 
@@ -491,6 +520,9 @@ function TreeView:draw()
   if self.hovered_item and self.tooltip.x and self.tooltip.alpha > 0 then
     core.root_view:defer_draw(self.draw_tooltip, self)
   end
+  self.size.y = full_height
+  self:layout_toolbar()
+  if self.toolbar then self.toolbar:draw() end
 end
 
 
@@ -566,20 +598,13 @@ end
 
 -- init
 local view = TreeView()
-local node = core.root_view:get_active_node()
-view.node = node:split("left", view, {x = true}, true)
 
--- The toolbarview plugin is special because it is plugged inside
--- a treeview pane which is itelf provided in a plugin.
--- We therefore break the usual plugin's logic that would require each
--- plugin to be independent of each other. In addition it is not the
--- plugin module that plug itself in the active node but it is plugged here
--- in the treeview node.
+-- Keep the optional toolbar as part of the Files provider. The sidebar shell
+-- owns the outer layout, while TreeView reserves the toolbar's bottom row.
 local toolbar_view = nil
 local toolbar_plugin, ToolbarView = pcall(require, "plugins.toolbarview")
 if config.plugins.toolbarview ~= false and toolbar_plugin then
   toolbar_view = ToolbarView()
-  view.node:split("down", toolbar_view, {y = true})
   local min_toolbar_width = toolbar_view:get_min_width()
   view:set_target_size("x", math.max(config.plugins.treeview.size, min_toolbar_width))
   command.add(nil, {
@@ -589,17 +614,9 @@ if config.plugins.toolbarview ~= false and toolbar_plugin then
   })
 end
 
-local toolbar_visible = toolbar_view and toolbar_view.visible
 SidebarHost:register("files", view, {
-  on_show = function()
-    if toolbar_view then toolbar_view.visible = toolbar_visible ~= false end
-  end,
-  on_hide = function()
-    if toolbar_view then
-      toolbar_visible = toolbar_view.visible
-      toolbar_view.visible = false
-    end
-  end
+  label = "Files",
+  order = 10,
 })
 
 
@@ -672,8 +689,13 @@ end
 
 local function treeitem() return view.hovered_item or view.selected_item end
 
+local function treeview_active()
+  return core.active_view:is(TreeView)
+    or (SidebarHost.active_view == view and core.active_view == SidebarHost.shell)
+end
 
-menu:register(function() return core.active_view:is(TreeView) and treeitem() end, {
+
+menu:register(function() return treeview_active() and treeitem() end, {
   { text = "Open in System", command = "treeview:open-in-system" },
   { text = "Open in Editor", command = "treeview:open-in-editor" },
   ContextMenu.DIVIDER
@@ -681,7 +703,7 @@ menu:register(function() return core.active_view:is(TreeView) and treeitem() end
 
 menu:register(function()
   local item = treeitem()
-  return core.active_view:is(TreeView)
+  return treeview_active()
     and item
     and item.type == "file"
     and MarkdownView.is_supported(item.abs_filename)
@@ -692,7 +714,7 @@ end, {
 menu:register(
   function()
     local item = treeitem()
-    return core.active_view:is(TreeView) and item and not is_project_folder(item)
+    return treeview_active() and item and not is_project_folder(item)
   end,
   {
     { text = "Rename", command = "treeview:rename" },
@@ -703,7 +725,7 @@ menu:register(
 menu:register(
   function()
     local item = treeitem()
-    return core.active_view:is(TreeView) and item and item.type == "dir"
+    return treeview_active() and item and item.type == "dir"
   end,
   {
     { text = "New File", command = "treeview:new-file" },
@@ -714,7 +736,7 @@ menu:register(
 menu:register(
   function()
     local item = treeitem()
-    return core.active_view:is(TreeView) and item
+    return treeview_active() and item
       and not is_primary_project_folder(item.abs_filename)
       and is_project_folder(item)
   end,
@@ -746,7 +768,7 @@ command.add(nil, {
   end,
 
   ["treeview:toggle-focus"] = function()
-    if not core.active_view:is(TreeView) then
+    if not treeview_active() then
       if core.active_view:is(CommandView) then
         previous_view = core.last_active_view
       else
@@ -1070,7 +1092,7 @@ command.add(function()
 
 command.add(
   function()
-    return menu.show_context_menu == true and core.active_view:is(TreeView)
+    return menu.show_context_menu == true and treeview_active()
   end, {
   ["treeview-context:focus-previous"] = function()
     menu:focus_previous()
