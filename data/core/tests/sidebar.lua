@@ -141,6 +141,24 @@ test.describe("Core sidebar", function()
     test.equal(SidebarHost.active_view, first_view)
   end)
 
+  test.test("preserves focus transferred by a panel action", function()
+    local name = mode_name("focus-transfer")
+    local panel = TestView()
+    local target = core.command_view
+    function panel:on_mouse_pressed()
+      core.set_active_view(target)
+      return true
+    end
+    register(name, panel, { label = "Focus transfer", order = 5 })
+    SidebarHost:show(name)
+    core.root_view:update()
+
+    local shell = SidebarHost.shell
+    test.ok(shell:on_mouse_pressed("left", shell.position.x + 1,
+      shell.position.y + shell:get_tab_height() + 1, 1))
+    test.equal(core.active_view, target)
+  end)
+
   test.test("restores visibility and falls back after unregistering the active mode", function()
     local name = mode_name("fallback")
     register(name, TestView(), { label = "Fallback", order = 5 })

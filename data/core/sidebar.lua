@@ -231,9 +231,9 @@ function SidebarShell:on_mouse_pressed(button, x, y, clicks)
   local view = self.host.active_view
   if not view then return true end
   core.set_active_view(view)
-  local processed = view:on_mouse_pressed(button, x, y, clicks)
-  if core.active_view ~= view and self.host.visible then core.set_active_view(view) end
-  return processed
+  -- Delegated controls may intentionally transfer focus, for example when an
+  -- action opens the command view. Do not steal that focus back afterward.
+  return view:on_mouse_pressed(button, x, y, clicks)
 end
 
 function SidebarShell:on_mouse_released(button, x, y, ...)
