@@ -4,6 +4,14 @@ local common = require "core.common"
 ---@class core.config
 local config = {}
 
+---Shared rasterization policy inherited by UI, editor, and terminal fonts.
+---@type { antialiasing: "none"|"grayscale"|"subpixel", hinting: "none"|"slight"|"full", stroke_enhancement: boolean }
+config.font_rendering = {
+  antialiasing = "grayscale",
+  hinting = "slight",
+  stroke_enhancement = false
+}
+
 ---Keep the maximum FPS locked to current display refresh rate.
 ---
 ---Defaults to true.

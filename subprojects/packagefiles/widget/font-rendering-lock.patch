@@ -1,0 +1,37 @@
+diff --git a/fontdialog.lua b/fontdialog.lua
+index 00ea33a..0b6058c 100644
+--- a/fontdialog.lua
++++ b/fontdialog.lua
+@@ -129,0 +130,6 @@ function FontDialog:new(font, options)
++  self.rendering_locked = options and options.rendering_locked or false
++  if self.rendering_locked then
++    self.antialiasing:hide()
++    self.hinting:hide()
++    self.smoothing:hide()
++  end
+@@ -251,0 +258 @@ function FontDialog:get_options()
++    rendering_locked = self.rendering_locked,
+@@ -303,0 +311,2 @@ function FontDialog:update_size_position()
++  local rendering_bottom = self.rendering_locked
++    and self.line:get_bottom() or self.hinting:get_bottom()
+@@ -306 +315 @@ function FontDialog:update_size_position()
+-    self.hinting:get_bottom() + style.padding.y
++    rendering_bottom + style.padding.y
+@@ -310 +319 @@ function FontDialog:update_size_position()
+-    self.hinting:get_bottom() + style.padding.y
++    rendering_bottom + style.padding.y
+@@ -314 +323 @@ function FontDialog:update_size_position()
+-    self.hinting:get_bottom() + style.padding.y
++    rendering_bottom + style.padding.y
+@@ -318 +327 @@ function FontDialog:update_size_position()
+-    self.hinting:get_bottom() + style.padding.y
++    rendering_bottom + style.padding.y
+@@ -321,2 +330,3 @@ function FontDialog:update_size_position()
+-    self.smoothing:get_right() + style.padding.x,
+-    self.hinting:get_bottom() + style.padding.y
++    (self.rendering_locked and self.underline:get_right()
++      or self.smoothing:get_right()) + style.padding.x,
++    rendering_bottom + style.padding.y
+@@ -326 +336 @@ function FontDialog:update_size_position()
+-    self.hinting:get_bottom() + style.padding.y
++    rendering_bottom + style.padding.y

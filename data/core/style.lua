@@ -36,7 +36,9 @@ style.margin = {
 --
 -- On High DPI monitor or non RGB monitor you may consider using antialiasing grayscale instead.
 -- The antialiasing grayscale with full hinting is interesting for crisp font rendering.
-style.font = renderer.font.load(DATADIR .. "/fonts/FiraSans-Regular.ttf", 15 * SCALE)
+style.font = renderer.font.load(
+  DATADIR .. "/fonts/FiraSans-Regular.ttf", 15 * SCALE,
+  font.get_rendering_options())
 style.big_font = style.font:copy(46 * SCALE)
 style.icon_font = renderer.font.load(DATADIR .. "/fonts/icons.ttf", 16 * SCALE, {antialiasing="grayscale", hinting="full"})
 style.icon_big_font = style.icon_font:copy(23 * SCALE)
@@ -52,5 +54,21 @@ style.syntax_fonts = {}
 -- style.syntax_fonts["comment"] = renderer.font.load(path_to_font, size_of_font, rendering_options)
 
 style.log = {}
+
+font.define_role("ui", function()
+  style.font = style.font:copy(
+    style.font:get_size(), font.get_rendering_options())
+  style.big_font = style.big_font:copy(
+    style.big_font:get_size(), font.get_rendering_options())
+end)
+
+font.define_role("code", function()
+  style.code_font = style.code_font:copy(
+    style.code_font:get_size(), font.get_rendering_options())
+  for name, syntax_font in pairs(style.syntax_fonts) do
+    style.syntax_fonts[name] = syntax_font:copy(
+      syntax_font:get_size(), font.get_rendering_options())
+  end
+end)
 
 return style

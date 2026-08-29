@@ -5,6 +5,7 @@ local common = require "core.common"
 local command = require "core.command"
 local keymap = require "core.keymap"
 local style = require "core.style"
+local font = require "core.font"
 local tokenizer = require "core.tokenizer"
 local View = require "core.view"
 local DocView = require "core.docview"
@@ -419,10 +420,46 @@ settings.add("Graphics",
 settings.add("User Interface",
   {
     {
+      label = "Font Antialiasing",
+      description = "Shared glyph antialiasing for UI, editor, and terminal fonts.",
+      path = "font_rendering.antialiasing",
+      type = settings.type.SELECTION,
+      default = "grayscale",
+      values = {
+        { "Grayscale", "grayscale" },
+        { "Subpixel", "subpixel" },
+        { "None", "none" },
+      },
+      on_apply = font.refresh_all
+    },
+    {
+      label = "Font Hinting",
+      description = "Shared pixel alignment for UI, editor, and terminal fonts.",
+      path = "font_rendering.hinting",
+      type = settings.type.SELECTION,
+      default = "slight",
+      values = {
+        { "Slight", "slight" },
+        { "Full", "full" },
+        { "None", "none" },
+      },
+      on_apply = font.refresh_all
+    },
+    {
+      label = "Stroke Enhancement",
+      description = "Slightly thicken UI, editor, and inherited terminal glyph outlines.",
+      path = "font_rendering.stroke_enhancement",
+      type = settings.type.TOGGLE,
+      default = false,
+      on_apply = font.refresh_all
+    },
+    {
       label = "Font",
-      description = "The font and fallbacks used on non code text.",
+      description = "UI font family, fallbacks, and size. Rendering uses the shared font settings above.",
       path = "font",
       type = settings.type.FONT,
+      inherit_rendering = true,
+      on_apply = function() font.refresh("ui") end,
       fonts_list = style,
       default = {
         fonts = {
@@ -593,9 +630,11 @@ settings.add("Editor",
   {
     {
       label = "Code Font",
-      description = "The font and fallbacks used on the code editor.",
+      description = "Editor font family, fallbacks, and size. Rendering uses the shared font settings.",
       path = "code_font",
       type = settings.type.FONT,
+      inherit_rendering = true,
+      on_apply = function() font.refresh("code") end,
       fonts_list = style,
       default = {
         fonts = {
@@ -1300,14 +1339,18 @@ end
 ---@param path string
 ---@param saved_value any
 local function merge_font_settings(option, path, saved_value)
-  local font_options = saved_value.options or {
+  local font_options = common.merge({}, saved_value.options or {
     size = 15,
     antialiasing = "supixel",
     hinting = "slight"
-  }
+  })
   font_options.size = font_options.size or 15
   font_options.antialiasing = font_options.antialiasing or "subpixel"
   font_options.hinting = font_options.hinting or "slight"
+  if option.inherit_rendering then
+    font_options = common.merge(font_options, font.get_rendering_options())
+    font_options.rendering_locked = true
+  end
 
   local fonts = {}
   local font_loaded = true
@@ -1648,14 +1691,18 @@ local function add_control(pane, option, context)
         fonts:add_font(font)
       end
 
-      local font_options = option_value.options or {
+      local font_options = common.merge({}, option_value.options or {
         size = 15,
         antialiasing = "supixel",
         hinting = "slight"
-      }
+      })
       font_options.size = font_options.size or 15
       font_options.antialiasing = font_options.antialiasing or "subpixel"
       font_options.hinting = font_options.hinting or "slight"
+      if option.inherit_rendering then
+        font_options = common.merge(font_options, font.get_rendering_options())
+        font_options.rendering_locked = true
+      end
       fonts:set_options(font_options)
     end
     widget = fonts
@@ -1716,6 +1763,11 @@ local function add_control(pane, option, context)
       end
 
       if self:is(FontsList) then
+        if option.inherit_rendering then
+          value.options = common.merge(
+            value.options, font.get_rendering_options())
+          value.options.rendering_locked = true
+        end
         local fonts = {}
         for _, font in ipairs(value.fonts) do
           table.insert(fonts, renderer.font.load(

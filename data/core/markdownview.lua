@@ -3,6 +3,7 @@ local common = require "core.common"
 local config = require "core.config"
 local ImageView = require "core.imageview"
 local style = require "core.style"
+local font = require "core.font"
 local syntax = require "core.syntax"
 local tokenizer = require "core.tokenizer"
 local View = require "core.view"
@@ -3129,6 +3130,11 @@ end
 ---Constructor.
 ---@param source? string|core.markdownview.source
 ---@param title? string
+local function refresh_view_fonts(view)
+  view.font_cache = nil
+  view:invalidate_layout()
+end
+
 function MarkdownView:new(source, title)
   MarkdownView.super.new(self)
   self.scrollable = true
@@ -3170,6 +3176,8 @@ function MarkdownView:new(source, title)
   self.virtual_block_cache = {}
   self.virtual_metrics = nil
   self.virtual_layout_cache = nil
+  font.subscribe("ui", self, refresh_view_fonts)
+  font.subscribe("code", self, refresh_view_fonts)
 
   if type(source) == "table" then
     self.linked_doc = source.linked_doc or source.doc

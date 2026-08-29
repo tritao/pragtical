@@ -1,4 +1,58 @@
 local font = {}
+local common = require "core.common"
+local config = require "core.config"
+
+config.font_rendering = common.merge({
+  antialiasing = "grayscale",
+  hinting = "slight",
+  stroke_enhancement = false
+}, config.font_rendering)
+
+local role_subscribers = {}
+local role_builders = {}
+
+function font.get_rendering_options(overrides)
+  overrides = overrides or {}
+  local smoothing = overrides.smoothing
+  if smoothing == nil then
+    smoothing = config.font_rendering.stroke_enhancement
+  end
+  return {
+    antialiasing = overrides.antialiasing
+      or config.font_rendering.antialiasing,
+    hinting = overrides.hinting or config.font_rendering.hinting,
+    smoothing = smoothing,
+  }
+end
+
+function font.subscribe(role, owner, listener)
+  local subscribers = role_subscribers[role]
+  if not subscribers then
+    subscribers = setmetatable({}, { __mode = "k" })
+    role_subscribers[role] = subscribers
+  end
+  subscribers[owner] = listener
+  return function() subscribers[owner] = nil end
+end
+
+function font.define_role(role, rebuild)
+  role_builders[role] = rebuild
+end
+
+function font.refresh(role, ...)
+  local rebuild = role_builders[role]
+  if rebuild then rebuild(...) end
+  local subscribers = role_subscribers[role]
+  if not subscribers then return end
+  for owner, listener in pairs(subscribers) do listener(owner, ...) end
+end
+
+function font.refresh_all()
+  local roles = {}
+  for role in pairs(role_builders) do roles[role] = true end
+  for role in pairs(role_subscribers) do roles[role] = true end
+  for role in pairs(roles) do font.refresh(role) end
+end
 
 local bundled_regular = DATADIR .. "/fonts/JetBrainsMono-Regular.ttf"
 local bundled_faces = {
@@ -38,13 +92,10 @@ local function fallback_paths()
 end
 
 local function rendering_options(options, synthetic)
-  return {
-    antialiasing = options.antialiasing,
-    hinting = options.hinting,
-    smoothing = options.smoothing,
+  return common.merge(font.get_rendering_options(options), {
     bold = synthetic and options.weight == "bold" or nil,
     italic = synthetic and options.italic or nil
-  }
+  })
 end
 
 function font.get_primary_path(value)

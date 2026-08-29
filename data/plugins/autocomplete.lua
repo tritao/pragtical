@@ -5,6 +5,7 @@ local common = require "core.common"
 local config = require "core.config"
 local keymap = require "core.keymap"
 local style = require "core.style"
+local font = require "core.font"
 local Doc = require "core.doc"
 local DocView = require "core.docview"
 local MarkdownView = require "core.markdownview"
@@ -401,6 +402,12 @@ local desc_rect
 local desc_font_size = config.plugins.autocomplete.desc_font_size
 local previous_scale = SCALE
 local desc_font = style.code_font:copy(desc_font_size * SCALE)
+
+local autocomplete_font_role = {}
+font.subscribe("code", autocomplete_font_role, function()
+  desc_font = style.code_font:copy(desc_font_size * SCALE)
+  desc_view_font = nil
+end)
 
 
 local function reset_suggestions(skip_close)
