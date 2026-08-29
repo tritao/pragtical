@@ -16,6 +16,7 @@ pragtical_sources = [
     'api/utils/lxlauxlib.c',
     'arena_allocator.c',
     'custom_events.c',
+    'ctl_main.c',
     'system_events.c',
     'renderer/atlas.c',
     'renderer/atlas_surface.c',
@@ -262,6 +263,26 @@ executable('pragtical',
     install: true,
     win_subsystem: 'windows',
 )
+
+if host_machine.system() != 'windows' and host_machine.system() != 'emscripten'
+    install_symlink('pragtical-ctl', pointing_to: 'pragtical', install_dir: pragtical_bindir)
+elif host_machine.system() == 'windows'
+    # Windows installations do not consistently preserve executable
+    # symlinks, so install a second copy with the documented CLI name. Both
+    # names execute the same multicall code path.
+    executable('pragtical-ctl',
+        pragtical_sources + pragtical_rc,
+        include_directories: pragtical_includes,
+        dependencies: pragtical_deps,
+        c_args: pragtical_cargs,
+        objc_args: pragtical_cargs,
+        link_args: pragtical_link_args,
+        link_whole: pragtical_link_whole,
+        install_dir: pragtical_bindir,
+        install: true,
+        win_subsystem: 'windows',
+    )
+endif
 
 if host_machine.system() == 'windows'
     # MSVC generates pragtical.lib/.exp as side effects of linking. Without a

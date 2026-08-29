@@ -25,6 +25,16 @@
 
 local json = { _version = "0.1.2" }
 
+local json_array_metatable = { __json_array = true }
+
+---Marks a table as a JSON array, including when it is empty.
+---The default Lua representation cannot distinguish an empty array from an
+---empty object, so callers that need an explicit `[]` can use this helper.
+function json.array(value)
+  assert(type(value) == "table", "json.array expects a table")
+  return setmetatable(value, json_array_metatable)
+end
+
 local error_message = ""
 
 -- Lets us explicitly add null values to table elements
@@ -79,7 +89,8 @@ local function encode_table(val, stack)
 
   stack[val] = true
 
-  if rawget(val, 1) ~= nil or next(val) == nil then
+  local metadata = getmetatable(val)
+  if (metadata and metadata.__json_array) or rawget(val, 1) ~= nil then
     -- Treat as array -- check keys are valid and it is not sparse
     local n = 0
     for k in pairs(val) do
@@ -99,7 +110,7 @@ local function encode_table(val, stack)
     if #res > 0 then
       return "[" .. table.concat(res, ",") .. "]"
     else
-      return "{}"
+      return "[]"
     end
 
   else

@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "api/api.h"
+#include "ctl_main.h"
 #include "system_events.h"
 #include "renderer/renderer.h"
 #include "custom_events.h"
@@ -270,6 +271,7 @@ static void call_core_on_error(lua_State *L, const char *errmsg) {
 
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
+  if (ctl_invocation(argc, argv)) exit(ctl_main(argc, argv));
 #ifndef _WIN32
   signal(SIGPIPE, SIG_IGN);
 #else

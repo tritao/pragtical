@@ -75,6 +75,13 @@ rename this directory however you wish.
 
 For more detailed instructions visit: https://pragtical.dev/docs/setup/building
 
+### Control CLI
+
+The installed `pragtical-ctl` command controls a running editor without
+initializing a second GUI. See [docs/control-cli.md](docs/control-cli.md) for
+commands, JSON output, selection, and exit codes. The portable fallback is
+`pragtical --ctl ...`.
+
 ### Web preview
 
 The web target uses the pinned Emscripten SDK in `.emscripten-version`:

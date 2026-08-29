@@ -188,13 +188,28 @@ function Control:_register_defaults()
   self:register {
     method = "editor.save",
     validate = function(params)
-      if type(params) ~= "table"
-          or (type(params.path) ~= "string" and type(params.document_id) ~= "string") then
-        return nil, "path or document_id is required"
+      if type(params) ~= "table" then return nil, "params must be a map" end
+      if params.path == nil and params.document_id == nil then return {} end
+      if type(params.path) ~= "string" and type(params.document_id) ~= "string" then
+        return nil, "path or document_id must be a string"
       end
       return params
     end,
     execute = function(params)
+      if not params.path and not params.document_id then
+        local saved = {}
+        for _, current in ipairs(core.docs) do
+          if current.abs_filename and current:is_dirty() then
+            current:save()
+            saved[#saved + 1] = {
+              document_id = document_id(self, current),
+              path = current.abs_filename,
+              modified = false,
+            }
+          end
+        end
+        return { documents = saved }
+      end
       local doc = find_document(self, params)
       if not doc then return nil, Errors.new("not_found", "document was not found", false) end
       if not doc.abs_filename then
