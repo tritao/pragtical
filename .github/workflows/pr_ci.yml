@@ -199,6 +199,7 @@ jobs:
   build_windows_msys2:
     name: Windows
     runs-on: windows-2022
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -251,14 +252,17 @@ jobs:
           bash --version
           bash ./build.sh --debug --forcefallback --sqlite auto 2>&1 | tee ci-build.log
       - name: Run Tests
+        timeout-minutes: 15
         run: |
           source scripts/common.sh
-          SDL_VIDEO_DRIVER=dummy ./scripts/run-local "$(get_default_build_dir)" test scripts/lua/tests
+          ./scripts/ci/run-lua-tests.sh "$(get_default_build_dir)"
       - name: Run Terminal Native Tests
+        timeout-minutes: 10
         run: |
           source scripts/common.sh
           meson test -C "$(get_default_build_dir)" terminal-native-components --print-errorlogs --verbose
       - name: Run Workbench Windows Tests
+        timeout-minutes: 15
         shell: pwsh
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
