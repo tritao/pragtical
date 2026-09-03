@@ -864,6 +864,15 @@ settings.add("Development",
       max = 2000
     },
     {
+      label = "Log Files",
+      description = "The maximum number of per-run application log files to retain.",
+      path = "max_log_files",
+      type = settings.type.NUMBER,
+      default = 20,
+      min = 1,
+      max = 200
+    },
+    {
       label = "Skip Plugins Version",
       description = "Do not verify the plugins required versions at startup.",
       path = "skip_plugins_version",

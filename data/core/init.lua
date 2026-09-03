@@ -19,6 +19,8 @@ local MarkdownView
 local Doc
 local Project
 local Control
+local log_file
+local log_directory
 
 ---Core functionality.
 ---@class core
@@ -446,6 +448,85 @@ function core.ensure_user_directory()
 end
 
 
+local function format_log_item(item)
+  local text = string.format(
+    "%s [%s] %s at %s",
+    os.date("%Y-%m-%d %H:%M:%S", item.time),
+    item.level,
+    item.text,
+    item.at
+  )
+  if item.info then
+    text = string.format("%s\n%s", text, item.info)
+  end
+  return text
+end
+
+
+local function write_log_item(item)
+  if not log_file then return end
+  local ok = pcall(function()
+    log_file:write(format_log_item(item), "\n")
+    log_file:flush()
+  end)
+  if not ok then
+    pcall(log_file.close, log_file)
+    log_file = nil
+  end
+end
+
+
+local function initialize_log_file()
+  log_directory = USERDIR .. PATHSEP .. "logs"
+  local created, err = common.mkdirp(log_directory)
+  if not created then return false, err end
+
+  local stem = string.format(
+    "pragtical-%s-%d",
+    os.date("%Y%m%d-%H%M%S"),
+    system.get_process_id()
+  )
+  local filename = stem .. ".log"
+  local suffix = 1
+  while system.get_file_info(log_directory .. PATHSEP .. filename) do
+    filename = string.format("%s-%d.log", stem, suffix)
+    suffix = suffix + 1
+  end
+
+  local path = log_directory .. PATHSEP .. filename
+  local fp, open_err = io.open(path, "wb")
+  if not fp then return false, open_err end
+  log_file = fp
+  core.log_file_path = path
+  for _, item in ipairs(core.log_items) do write_log_item(item) end
+  return true
+end
+
+
+local function prune_log_files()
+  if not log_directory then return end
+  local limit = math.max(1, math.floor(tonumber(config.max_log_files) or 20))
+  local files = {}
+  for _, filename in ipairs(system.list_dir(log_directory) or {}) do
+    if filename:match("^pragtical%-%d%d%d%d%d%d%d%d%-%d%d%d%d%d%d%-%d+[%d%-]*%.log$") then
+      files[#files + 1] = filename
+    end
+  end
+  table.sort(files)
+  while #files > limit do
+    os.remove(log_directory .. PATHSEP .. table.remove(files, 1))
+  end
+end
+
+
+local function close_log_file()
+  if not log_file then return end
+  pcall(log_file.flush, log_file)
+  pcall(log_file.close, log_file)
+  log_file = nil
+end
+
+
 function core.configure_borderless_window()
   system.set_window_bordered(core.window, not config.borderless)
   core.title_view:configure_hit_test(config.borderless)
@@ -533,6 +614,10 @@ function core.init()
   end
   -- Ensure that we have a user directory.
   core.ensure_user_directory()
+  local logging_ok, logging_error = initialize_log_file()
+  if not logging_ok then
+    core.warn("Could not create the application log: %s", tostring(logging_error))
+  end
 
   if not RESTARTED and not launch_options.no_forward and not launch_options.new_instance
       and #launch_paths > 0 then
@@ -647,6 +732,7 @@ function core.init()
 
   -- Load core and user plugins giving preference to user ones with same name.
   local plugins_success, plugins_refuse_list = core.load_plugins()
+  prune_log_files()
 
   -- Parse commandline arguments
   cli.parse(ARGS)
@@ -837,6 +923,8 @@ function core.exit(quit_fn, force)
     while #core.projects > 1 do core.remove_project(core.projects[#core.projects]) end
     save_session()
     if core.control then core.control:stop(); core.control = nil end
+    core.log_quiet("Pragtical is exiting")
+    close_log_file()
     quit_fn()
   else
     core.confirm_close_docs(core.docs, core.exit, quit_fn, true)
@@ -1537,6 +1625,7 @@ function core.custom_log(level, show, backtrace, fmt, ...)
   if #core.log_items > config.max_log_items then
     table.remove(core.log_items, 1)
   end
+  write_log_item(item)
   return item
 end
 
@@ -1568,11 +1657,7 @@ function core.get_log(i)
     return table.concat(r, "\n")
   end
   local item = type(i) == "number" and core.log_items[i] or i
-  local text = string.format("%s [%s] %s at %s", os.date(nil, item.time), item.level, item.text, item.at)
-  if item.info then
-    text = string.format("%s\n%s\n", text, item.info)
-  end
-  return text
+  return format_log_item(item)
 end
 
 
@@ -2268,6 +2353,7 @@ end
 
 
 function core.on_error(err)
+  pcall(core.custom_log, "ERROR", false, true, "Fatal error: %s", tostring(err))
   -- write error to file
   local fp = io.open(USERDIR .. PATHSEP .. "error.txt", "wb")
   fp:write("Error: " .. tostring(err) .. "\n")

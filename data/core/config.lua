@@ -69,6 +69,13 @@ config.images_background_color = { common.color "#ffffff" }
 ---@type number
 config.max_log_items = 800
 
+---Maximum number of per-run application log files to retain on disk.
+---Older files are removed after user configuration is loaded.
+---
+---Defaults to 20.
+---@type number
+config.max_log_files = 20
+
 ---The timeout, in seconds, before a message dissapears from StatusView.
 ---
 ---Defaults to 5.
